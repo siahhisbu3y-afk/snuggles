@@ -28,15 +28,16 @@ if (!TOKEN) {
 // ─────────────────────────────────────────────
 //  Constants
 // ─────────────────────────────────────────────
-const PREFIX       = "s!";
-const BOT_NAME     = "Snuggles Scripting";
-const BOT_VERSION  = "1.7.0";
-const BOT_OWNER    = "Snuggles";
-const BRAND_COLOR  = 0xff8fb1;
+const PREFIX        = "s!";
+const BOT_NAME      = "Snuggles Scripting";
+const BOT_VERSION   = "1.8.0";
+const BOT_OWNER     = "Snuggles";
+const BRAND_COLOR   = 0xff8fb1;
 const SUCCESS_COLOR = 0x57f287;
-const WARN_COLOR   = 0xfee75c;
-const ERROR_COLOR  = 0xed4245;
-const NOTE_COLOR   = 0x9b59b6;
+const WARN_COLOR    = 0xfee75c;
+const ERROR_COLOR   = 0xed4245;
+const NOTE_COLOR    = 0x9b59b6;
+const INFO_COLOR    = 0x5865f2;
 
 // ─────────────────────────────────────────────
 //  Static content
@@ -388,25 +389,52 @@ async function respond(message, payload) {
 }
 
 // ─────────────────────────────────────────────
-//  Cooldown system
+//  Cooldown system — FIXED
+//  
+//  FIX: Separated checkCooldown (read-only) from consumeCooldown (sets bucket).
+//  Previously checkCooldown() set the bucket even when just checking, causing
+//  false "cooldown active" responses for users who hadn't used the command yet.
+//  Now: check first → if clear, consume → run command.
 // ─────────────────────────────────────────────
 const COOLDOWN_BUCKETS = new Map();
+
+// Cooldowns only apply to commands that could be spammy. 
+// Non-spam commands (help, info, rules, etc.) have NO cooldown at all.
 const COOLDOWNS_MS = {
-  vouch: 60_000, review: 60_000, meme: 5_000, "8ball": 3_000,
-  rate: 5_000, quote: 5_000, tip: 5_000, daily: 86_400_000,
-  pay: 10_000, stats: 5_000,
+  vouch: 60_000,
+  review: 60_000,
+  meme: 8_000,
+  "8ball": 3_000,
+  rate: 5_000,
+  quote: 5_000,
+  tip: 5_000,
+  daily: 86_400_000,
+  pay: 10_000,
+  stats: 8_000,
+  snippet: 5_000,
 };
 
-// Returns remaining seconds (0 = good to go). Sets bucket on success.
+/**
+ * Returns remaining cooldown seconds (0 = good to go).
+ * Does NOT modify the bucket — call consumeCooldown() after you've decided to run.
+ */
 function checkCooldown(commandName, userId) {
   const ms = COOLDOWNS_MS[commandName];
   if (!ms) return 0;
   const key = `${commandName}:${userId}`;
-  const now = Date.now();
   const next = COOLDOWN_BUCKETS.get(key) || 0;
-  if (now < next) return Math.ceil((next - now) / 1000);
-  COOLDOWN_BUCKETS.set(key, now + ms);
-  return 0;
+  const remaining = next - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+}
+
+/**
+ * Stamps the cooldown bucket. Call this only when the command is actually executing.
+ */
+function consumeCooldown(commandName, userId) {
+  const ms = COOLDOWNS_MS[commandName];
+  if (!ms) return;
+  const key = `${commandName}:${userId}`;
+  COOLDOWN_BUCKETS.set(key, Date.now() + ms);
 }
 
 // ─────────────────────────────────────────────
@@ -425,9 +453,13 @@ function alreadyHandled(messageId) {
 }
 
 // ─────────────────────────────────────────────
-//  Commands that are mod/admin only
+//  Commands that require mod/admin permissions
 // ─────────────────────────────────────────────
-const MOD_ONLY_COMMANDS = new Set(["ban", "kick", "mute", "warn", "warns", "unwarn", "purge", "addorder", "complete", "blacklist", "setlog", "addwork", "removework", "settranscripts", "setreviews", "announce", "ticketpanel", "addnote", "say"]);
+const MOD_ONLY_COMMANDS = new Set([
+  "ban", "kick", "mute", "warn", "warns", "unwarn", "purge",
+  "addorder", "complete", "blacklist", "setlog", "addwork", "removework",
+  "settranscripts", "setreviews", "announce", "ticketpanel", "addnote", "say", "partner",
+]);
 
 // ─────────────────────────────────────────────
 //  Command list (help)
@@ -489,12 +521,12 @@ const COMMAND_LIST = [
   {
     category: "🎉 Fun",
     items: [
-      { name: "s!quote",           desc: "Random motivational quote." },
-      { name: "s!tip",             desc: "Random scripting / UI tip." },
-      { name: "s!meme",            desc: "Random wholesome meme." },
+      { name: "s!quote",            desc: "Random motivational quote." },
+      { name: "s!tip",              desc: "Random scripting / UI tip." },
+      { name: "s!meme",             desc: "Random wholesome meme." },
       { name: "s!8ball <question>", desc: "Magic 8-ball answers." },
-      { name: "s!rate <thing>",    desc: "I rate it 0–10." },
-      { name: "s!daily",           desc: "Claim your daily reward (once per 24h)." },
+      { name: "s!rate <thing>",     desc: "I rate it 0–10." },
+      { name: "s!daily",            desc: "Claim your daily reward (once per 24h)." },
     ],
   },
   {
@@ -545,14 +577,18 @@ function errorEmbed(title) {
 function warnEmbed(title) {
   return new EmbedBuilder().setColor(WARN_COLOR).setTitle(title);
 }
+function infoEmbed(title) {
+  return new EmbedBuilder().setColor(INFO_COLOR).setTitle(title);
+}
 
 // ─────────────────────────────────────────────
 //  ── GENERAL COMMANDS ──
 // ─────────────────────────────────────────────
 async function handleHelp(message) {
-  const embed = brandEmbed(`🧸 ${BOT_NAME} — Commands`)
-    .setDescription(`All available commands. Prefix: \`${PREFIX}\``)
-    .setFooter({ text: `${BOT_NAME} v${BOT_VERSION} • Made with 💗` });
+  const embed = brandEmbed(`🧸 ${BOT_NAME} — Command List`)
+    .setDescription(`Use the prefix \`${PREFIX}\` before any command below.`)
+    .setFooter({ text: `${BOT_NAME} v${BOT_VERSION} • Made with 💗 by ${BOT_OWNER}` })
+    .setTimestamp();
 
   for (const group of COMMAND_LIST) {
     embed.addFields({
@@ -567,46 +603,57 @@ async function handleInfo(message) {
   const up = Math.floor(process.uptime());
   const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = up % 60;
   const embed = brandEmbed(`🧸 ${BOT_NAME}`)
+    .setDescription("A feature-rich scripting services bot for the Snuggles Scripting community.")
     .addFields(
-      { name: "Bot Tag",   value: client.user?.tag || "Unknown",          inline: true },
-      { name: "Version",   value: BOT_VERSION,                            inline: true },
-      { name: "Owner",     value: BOT_OWNER,                              inline: true },
-      { name: "Library",   value: "discord.js v14",                       inline: true },
-      { name: "Runtime",   value: `Node.js ${process.version}`,           inline: true },
-      { name: "Servers",   value: `${client.guilds.cache.size}`,          inline: true },
-      { name: "Uptime",    value: `${h}h ${m}m ${s}s`,                   inline: true },
+      { name: "🤖 Bot Tag",    value: client.user?.tag || "Unknown",          inline: true },
+      { name: "📦 Version",    value: `v${BOT_VERSION}`,                      inline: true },
+      { name: "👑 Owner",      value: BOT_OWNER,                              inline: true },
+      { name: "📚 Library",    value: "discord.js v14",                       inline: true },
+      { name: "⚙️ Runtime",    value: `Node.js ${process.version}`,           inline: true },
+      { name: "🌐 Servers",    value: `${client.guilds.cache.size}`,          inline: true },
+      { name: "⏱️ Uptime",     value: `${h}h ${m}m ${s}s`,                   inline: true },
     )
-    .setFooter({ text: "Built with discord.js" });
+    .setFooter({ text: "Built with discord.js • Snuggles Scripting" })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
 async function handleStatus(message) {
   const wsPing = Math.max(0, Math.round(client.ws.ping));
-  const sent = await message.channel.send("Checking status…");
+  const sent = await message.channel.send({
+    embeds: [infoEmbed("🔍 Checking Status…").setDescription("Please wait a moment…")],
+  });
   const apiLatency = sent.createdTimestamp - message.createdTimestamp;
 
-  const embed = successEmbed("🟢 System Status")
+  const embed = successEmbed("🟢 All Systems Operational")
+    .setDescription("Everything is running smoothly.")
     .addFields(
-      { name: "Bot",               value: "🟢 Online",             inline: true },
-      { name: "Gateway Ping",      value: `${wsPing} ms`,          inline: true },
-      { name: "API Latency",       value: `${apiLatency} ms`,      inline: true },
-      { name: "Commission System", value: `🟢 Operational — ${data.orders.length} order(s) tracked` },
-      { name: "Ticket System",     value: "🟢 Operational" },
-      { name: "Moderation",        value: "🟢 Operational" },
+      { name: "🤖 Bot",               value: "🟢 Online",             inline: true },
+      { name: "📡 Gateway Ping",      value: `${wsPing} ms`,          inline: true },
+      { name: "🌐 API Latency",       value: `${apiLatency} ms`,      inline: true },
+      { name: "📋 Commission System", value: `🟢 Operational — ${data.orders.length} order(s) tracked` },
+      { name: "🎟️ Ticket System",    value: "🟢 Operational" },
+      { name: "🔨 Moderation",        value: "🟢 Operational" },
     )
-    .setFooter({ text: `${BOT_NAME} v${BOT_VERSION}` });
+    .setFooter({ text: `${BOT_NAME} v${BOT_VERSION}` })
+    .setTimestamp();
 
   await sent.edit({ content: "", embeds: [embed] });
 }
 
 async function handlePing(message) {
-  await respond(message, "pong 🧸");
+  const wsPing = Math.max(0, Math.round(client.ws.ping));
+  const embed = successEmbed("🏓 Pong!")
+    .addFields({ name: "Gateway Ping", value: `${wsPing} ms`, inline: true })
+    .setFooter({ text: "🧸 Snuggles Scripting" });
+  await respond(message, { embeds: [embed] });
 }
 
 async function handleRules(message) {
   const embed = brandEmbed("📜 Server Rules")
     .setDescription(SERVER_RULES.join("\n\n"))
-    .setFooter({ text: "Please follow the rules to keep this community safe." });
+    .setFooter({ text: "Please follow the rules to keep this community safe and welcoming." })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -617,7 +664,8 @@ async function handlePrices(message) {
     .setColor(SUCCESS_COLOR)
     .addFields(...PAYMENT_INFO.methods.map(m => ({ name: m.name, value: m.value })))
     .addFields({ name: "⚠️ Refund Policy", value: PAYMENT_INFO.note })
-    .setFooter({ text: `Open a ticket with ${PREFIX}ticket to start a purchase.` });
+    .setFooter({ text: `Open a ticket with ${PREFIX}ticket to start a purchase.` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -625,14 +673,16 @@ async function handleServices(message) {
   const embed = brandEmbed(`🛍️ ${BOT_NAME} — Services`)
     .setDescription("Here's everything we offer. Open a ticket to get started.")
     .addFields(SERVICES)
-    .setFooter({ text: `Use ${PREFIX}ticket to start a commission.` });
+    .setFooter({ text: `Use ${PREFIX}ticket to start a commission.` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
 async function handleQueue(message) {
   const active = data.orders.filter(o => o.status === "pending" || o.status === "in_progress");
   const embed = brandEmbed("📋 Commission Queue")
-    .setFooter({ text: `${active.length} active order(s)` });
+    .setFooter({ text: `${active.length} active order(s) • ${BOT_NAME}` })
+    .setTimestamp();
 
   if (active.length === 0) {
     embed.setDescription(`The queue is currently empty. Use \`${PREFIX}ticket\` to request a commission.`);
@@ -645,26 +695,28 @@ async function handleQueue(message) {
 }
 
 async function handleStatusOrder(message, args) {
-  if (!args[0]) return respond(message, `Usage: \`${PREFIX}statusorder <id>\``);
+  if (!args[0]) return respond(message, { embeds: [errorEmbed("Missing Argument").setDescription(`Usage: \`${PREFIX}statusorder <id>\``)] });
   const order = findOrder(args[0]);
-  if (!order) return respond(message, `❌ No order found with ID \`${args[0]}\`.`);
+  if (!order) return respond(message, { embeds: [errorEmbed("Order Not Found").setDescription(`No order found with ID \`${args[0]}\`.`)] });
 
   const embed = brandEmbed(`📦 Order #${order.id}`)
     .addFields(
-      { name: "Status",   value: statusBadge(order.status),                                                       inline: true },
-      { name: "Customer", value: `<@${order.userId}>`,                                                            inline: true },
-      { name: "Details",  value: order.details },
-      { name: "Created",  value: `<t:${Math.floor(new Date(order.createdAt).getTime() / 1000)}:f>`,               inline: true },
-      { name: "Updated",  value: `<t:${Math.floor(new Date(order.updatedAt).getTime() / 1000)}:R>`,               inline: true },
-    );
+      { name: "📊 Status",   value: statusBadge(order.status),                                                       inline: true },
+      { name: "👤 Customer", value: `<@${order.userId}>`,                                                            inline: true },
+      { name: "📝 Details",  value: order.details },
+      { name: "📅 Created",  value: `<t:${Math.floor(new Date(order.createdAt).getTime() / 1000)}:f>`,               inline: true },
+      { name: "🔄 Updated",  value: `<t:${Math.floor(new Date(order.updatedAt).getTime() / 1000)}:R>`,               inline: true },
+    )
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
 async function handleUptime(message) {
   const ms = client.uptime || 0;
-  const embed = brandEmbed("⏱️ Uptime")
+  const embed = brandEmbed("⏱️ Bot Uptime")
     .setDescription(`**${BOT_NAME}** has been online for **${formatDuration(ms)}**.`)
-    .setFooter({ text: `Version ${BOT_VERSION}` });
+    .setFooter({ text: `Version ${BOT_VERSION}` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -675,17 +727,19 @@ async function handleScript(message, args) {
   const type = (args[0] || "").toLowerCase();
   const available = Object.keys(SCRIPT_EXAMPLES).join(", ");
 
-  if (!type) return respond(message, `Usage: \`${PREFIX}script <type>\` — types: \`${available}\``);
+  if (!type) return respond(message, { embeds: [warnEmbed("Missing Script Type").setDescription(`Usage: \`${PREFIX}script <type>\`\n\nAvailable types: \`${available}\``)] });
   const example = SCRIPT_EXAMPLES[type];
-  if (!example) return respond(message, `❌ No example for \`${type}\`. Available: \`${available}\``);
+  if (!example) return respond(message, { embeds: [errorEmbed("Unknown Type").setDescription(`No example for \`${type}\`.\n\nAvailable: \`${available}\``)] });
 
   const embed = brandEmbed(`📜 ${example.title}`)
     .setDescription("```lua\n" + example.code + "\n```")
-    .setFooter({ text: `Category: ${type}` });
+    .setFooter({ text: `Category: ${type} • ${BOT_NAME}` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
 async function handleSnippet(message) {
+  consumeCooldown("snippet", message.author.id);
   const s = SNIPPETS[Math.floor(Math.random() * SNIPPETS.length)];
   const embed = brandEmbed(`💡 Snippet — ${s.title}`)
     .setDescription("```lua\n" + s.code + "\n```")
@@ -697,7 +751,8 @@ async function handleDocs(message) {
   const embed = brandEmbed("📚 Scripting Resources")
     .setDescription("Essential references for Roblox / Luau development.")
     .addFields(DOCS.map(d => ({ name: d.name, value: d.value })))
-    .setFooter({ text: "Bookmark these — they'll save you hours." });
+    .setFooter({ text: "Bookmark these — they'll save you hours." })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -711,10 +766,11 @@ async function handleDebug(message) {
     "What you've tried:\n<list any fixes you already attempted>\n" +
     "```";
 
-  const embed = warnEmbed("🐛 Need Help With an Error?")
+  const embed = warnEmbed("🐛 Debug Template")
     .setDescription(
       "Copy the template below, fill it out, and post it in the help channel or your ticket. The more specific you are, the faster we can help.\n\n" + template
-    );
+    )
+    .setFooter({ text: `${BOT_NAME} • Be as detailed as possible!` });
   await respond(message, { embeds: [embed] });
 }
 
@@ -729,29 +785,30 @@ async function handleUserInfo(message, args) {
     user = member.user;
   } catch {
     try { user = await client.users.fetch(userId); }
-    catch { return respond(message, "❌ Couldn't find that user."); }
+    catch { return respond(message, { embeds: [errorEmbed("User Not Found").setDescription("Couldn't find that user.")] }); }
   }
 
   const embed = brandEmbed(`👤 ${user.tag}`)
     .setThumbnail(user.displayAvatarURL({ size: 256 }))
     .addFields(
-      { name: "ID",              value: user.id,                                                        inline: true },
-      { name: "Bot",             value: user.bot ? "Yes" : "No",                                        inline: true },
-      { name: "Account Created", value: `<t:${Math.floor(user.createdTimestamp / 1000)}:F>` },
+      { name: "🆔 ID",              value: user.id,                                                        inline: true },
+      { name: "🤖 Bot",             value: user.bot ? "Yes" : "No",                                        inline: true },
+      { name: "📅 Account Created", value: `<t:${Math.floor(user.createdTimestamp / 1000)}:F>` },
     );
 
   if (member) {
-    if (member.joinedTimestamp) embed.addFields({ name: "Joined Server", value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:F>` });
+    if (member.joinedTimestamp) embed.addFields({ name: "📥 Joined Server", value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:F>` });
     const roles = member.roles.cache
       .filter(r => r.id !== message.guild.id)
       .sort((a, b) => b.position - a.position)
       .map(r => `<@&${r.id}>`).slice(0, 15);
-    if (roles.length) embed.addFields({ name: `Roles (${roles.length})`, value: roles.join(" ") });
+    if (roles.length) embed.addFields({ name: `🎭 Roles (${roles.length})`, value: roles.join(" ") });
     embed.addFields(
-      { name: "Warnings",    value: `${(data.warns[user.id] || []).length}`,              inline: true },
-      { name: "Blacklisted", value: data.blacklist.includes(user.id) ? "Yes" : "No",      inline: true },
+      { name: "⚠️ Warnings",    value: `${(data.warns[user.id] || []).length}`,              inline: true },
+      { name: "🚫 Blacklisted", value: data.blacklist.includes(user.id) ? "Yes" : "No",      inline: true },
     );
   }
+  embed.setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -764,17 +821,18 @@ async function handleServerInfo(message) {
   const embed = brandEmbed(`🏠 ${guild.name}`)
     .setThumbnail(guild.iconURL({ size: 256 }) || null)
     .addFields(
-      { name: "ID",            value: guild.id,                                                              inline: true },
-      { name: "Owner",         value: owner ? owner.user.tag : "—",                                          inline: true },
-      { name: "Created",       value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>` },
-      { name: "Members",       value: `${guild.memberCount}`,                                                inline: true },
-      { name: "Roles",         value: `${guild.roles.cache.size}`,                                           inline: true },
-      { name: "Emojis",        value: `${guild.emojis.cache.size}`,                                          inline: true },
-      { name: "Text",          value: `${channels.filter(c => c.type === ChannelType.GuildText).size}`,      inline: true },
-      { name: "Voice",         value: `${channels.filter(c => c.type === ChannelType.GuildVoice).size}`,     inline: true },
-      { name: "Categories",    value: `${channels.filter(c => c.type === ChannelType.GuildCategory).size}`,  inline: true },
-      { name: "Boost Tier",    value: `Tier ${guild.premiumTier} (${guild.premiumSubscriptionCount || 0} boosts)` },
-    );
+      { name: "🆔 ID",            value: guild.id,                                                              inline: true },
+      { name: "👑 Owner",         value: owner ? owner.user.tag : "—",                                          inline: true },
+      { name: "📅 Created",       value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>` },
+      { name: "👥 Members",       value: `${guild.memberCount}`,                                                inline: true },
+      { name: "🎭 Roles",         value: `${guild.roles.cache.size}`,                                           inline: true },
+      { name: "😄 Emojis",        value: `${guild.emojis.cache.size}`,                                          inline: true },
+      { name: "💬 Text",          value: `${channels.filter(c => c.type === ChannelType.GuildText).size}`,      inline: true },
+      { name: "🔊 Voice",         value: `${channels.filter(c => c.type === ChannelType.GuildVoice).size}`,     inline: true },
+      { name: "📁 Categories",    value: `${channels.filter(c => c.type === ChannelType.GuildCategory).size}`,  inline: true },
+      { name: "✨ Boost Tier",    value: `Tier ${guild.premiumTier} (${guild.premiumSubscriptionCount || 0} boosts)` },
+    )
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
@@ -782,17 +840,17 @@ async function handleAvatar(message, args) {
   const userId = parseUserId(args[0]) || message.author.id;
   let user;
   try { user = await client.users.fetch(userId); }
-  catch { return respond(message, "❌ Couldn't find that user."); }
+  catch { return respond(message, { embeds: [errorEmbed("User Not Found").setDescription("Couldn't find that user.")] }); }
 
   const url = user.displayAvatarURL({ size: 1024, extension: "png" });
   const embed = brandEmbed(`🖼️ ${user.tag}'s Avatar`)
-    .setURL(url).setImage(url);
+    .setURL(url).setImage(url)
+    .setFooter({ text: "Click the title to open full size." });
   await respond(message, { embeds: [embed] });
 }
 
 async function handleStats(message) {
-  const cd = checkCooldown("stats", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("stats", message.author.id);
 
   const stats = data.stats || {};
   const activeOrders    = data.orders.filter(o => o.status !== "completed").length;
@@ -805,13 +863,14 @@ async function handleStats(message) {
   const up = process.uptime();
 
   const embed = brandEmbed(`📈 ${BOT_NAME} — Stats`)
+    .setDescription("Live activity statistics for this server.")
     .addFields(
-      { name: "Orders (active / done)",   value: `${activeOrders} / ${completedOrders}`,                    inline: true },
-      { name: "Tickets (opened / closed)",value: `${stats.ticketsOpened || 0} / ${stats.ticketsClosed || 0}`, inline: true },
-      { name: "Reviews",                  value: `${totalReviews} (avg ${avgRating}⭐)`,                    inline: true },
-      { name: "Warnings on file",         value: `${totalWarns}`,                                           inline: true },
-      { name: "Portfolio entries",        value: `${data.portfolio.length}`,                                 inline: true },
-      { name: "Uptime",                   value: `${Math.floor(up / 3600)}h ${Math.floor((up % 3600) / 60)}m`, inline: true },
+      { name: "📦 Orders (active / done)",    value: `${activeOrders} / ${completedOrders}`,                    inline: true },
+      { name: "🎟️ Tickets (opened / closed)", value: `${stats.ticketsOpened || 0} / ${stats.ticketsClosed || 0}`, inline: true },
+      { name: "⭐ Reviews",                   value: `${totalReviews} (avg ${avgRating}⭐)`,                    inline: true },
+      { name: "⚠️ Warnings on file",          value: `${totalWarns}`,                                           inline: true },
+      { name: "🎨 Portfolio entries",         value: `${data.portfolio.length}`,                                 inline: true },
+      { name: "⏱️ Uptime",                    value: `${Math.floor(up / 3600)}h ${Math.floor((up % 3600) / 60)}m`, inline: true },
     )
     .setFooter({ text: `${BOT_NAME} v${BOT_VERSION}` })
     .setTimestamp();
@@ -822,16 +881,17 @@ async function handleStats(message) {
 //  ── REVIEWS & PAYMENT ──
 // ─────────────────────────────────────────────
 async function handleReview(message, args) {
-  const cd = checkCooldown("review", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("review", message.author.id);
 
   const raw = args.join(" ");
   const pipe = raw.indexOf("|");
   if (pipe < 0) {
-    return respond(message,
-      `**Usage:** \`${PREFIX}review <rating 1-5> <commission type> | <your message>\`\n` +
-      `**Example:** \`${PREFIX}review 5 UI scripting | Snuggles delivered fast and clean code.\``
-    );
+    return respond(message, {
+      embeds: [warnEmbed("Review Format").setDescription(
+        `**Usage:** \`${PREFIX}review <rating 1-5> <commission type> | <your message>\`\n\n` +
+        `**Example:** \`${PREFIX}review 5 UI scripting | Snuggles delivered fast and clean code.\``
+      )],
+    });
   }
 
   const left = raw.slice(0, pipe).trim().split(/\s+/);
@@ -839,9 +899,12 @@ async function handleReview(message, args) {
   const rating = parseInt(left[0], 10);
   const commissionType = left.slice(1).join(" ").trim();
 
-  if (!Number.isFinite(rating) || rating < 1 || rating > 5) return respond(message, "❌ Rating must be a number between 1 and 5.");
-  if (!commissionType) return respond(message, "❌ Please include a commission type.");
-  if (!reviewMessage)  return respond(message, "❌ Please include a review message after the `|`.");
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5)
+    return respond(message, { embeds: [errorEmbed("Invalid Rating").setDescription("Rating must be a number between **1** and **5**.")] });
+  if (!commissionType)
+    return respond(message, { embeds: [errorEmbed("Missing Type").setDescription("Please include a commission type after the rating.")] });
+  if (!reviewMessage)
+    return respond(message, { embeds: [errorEmbed("Missing Message").setDescription("Please include your review message after the `|`.")] });
 
   const review = {
     id: data.nextReviewId++,
@@ -856,13 +919,13 @@ async function handleReview(message, args) {
   saveData();
 
   const stars = "⭐".repeat(rating) + "☆".repeat(5 - rating);
-  const embed = brandEmbed("⭐ New Review")
+  const embed = brandEmbed("⭐ New Review Submitted")
     .setThumbnail(message.author.displayAvatarURL())
     .addFields(
-      { name: "From",       value: `${message.author} (${message.author.tag})`, inline: true },
-      { name: "Commission", value: commissionType,                               inline: true },
-      { name: "Rating",     value: `${stars} (${rating}/5)` },
-      { name: "Review",     value: reviewMessage },
+      { name: "👤 From",        value: `${message.author} (${message.author.tag})`, inline: true },
+      { name: "🛠️ Commission", value: commissionType,                               inline: true },
+      { name: "📊 Rating",     value: `${stars} **(${rating}/5)**` },
+      { name: "💬 Review",     value: reviewMessage },
     )
     .setFooter({ text: `Review #${review.id} • ${BOT_NAME}` })
     .setTimestamp();
@@ -873,7 +936,7 @@ async function handleReview(message, args) {
       const target = await message.guild.channels.fetch(settings.reviewsChannelId);
       if (target?.isTextBased()) {
         await target.send({ embeds: [embed] });
-        return respond(message, `✅ Thanks for the review! Posted in <#${settings.reviewsChannelId}>.`);
+        return respond(message, { embeds: [successEmbed("✅ Review Posted").setDescription(`Your review has been posted in <#${settings.reviewsChannelId}>. Thanks!`)] });
       }
     } catch {}
   }
@@ -881,14 +944,13 @@ async function handleReview(message, args) {
 }
 
 async function handleVouch(message, args) {
-  const cd = checkCooldown("vouch", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("vouch", message.author.id);
 
   const text = args.join(" ").trim();
-  if (!text) return respond(message, `**Usage:** \`${PREFIX}vouch <quick positive note>\``);
+  if (!text) return respond(message, { embeds: [warnEmbed("Missing Message").setDescription(`**Usage:** \`${PREFIX}vouch <your quick positive note>\``)] });
 
   const embed = successEmbed("✅ Vouch")
-    .setDescription(text)
+    .setDescription(`> ${text}`)
     .setThumbnail(message.author.displayAvatarURL())
     .setFooter({ text: `Vouched by ${message.author.tag}` })
     .setTimestamp();
@@ -899,7 +961,7 @@ async function handleVouch(message, args) {
       const target = await message.guild.channels.fetch(settings.reviewsChannelId);
       if (target?.isTextBased()) {
         await target.send({ embeds: [embed] });
-        return respond(message, `✅ Vouch posted in <#${settings.reviewsChannelId}>.`);
+        return respond(message, { embeds: [successEmbed("✅ Vouch Posted").setDescription(`Your vouch has been posted in <#${settings.reviewsChannelId}>!`)] });
       }
     } catch {}
   }
@@ -907,17 +969,17 @@ async function handleVouch(message, args) {
 }
 
 async function handlePay(message) {
-  const cd = checkCooldown("pay", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("pay", message.author.id);
 
-  const embed = brandEmbed("💸 Payment Methods")
-    .setDescription("Send payment using one of the methods below, then post a screenshot inside your ticket.")
+  const embed = brandEmbed("💸 Payment Details")
+    .setDescription("Send payment using one of the methods below, then drop a screenshot inside your ticket.")
     .addFields(
       { name: "💵 CashApp",     value: "[$siahhispaid](https://cash.app/$siahhispaid)",               inline: true },
       { name: "🅿️ PayPal",     value: "[paypal.me/snugglesscripting](https://paypal.me/snugglesscripting)", inline: true },
       { name: "⚠️ Important",  value: "**Friends & Family only.** Goods & Services payments will be refunded and your order cancelled." },
     )
-    .setFooter({ text: `${BOT_NAME} • All sales final` });
+    .setFooter({ text: `${BOT_NAME} • All sales final — no refunds.` })
+    .setTimestamp();
   return respond(message, { embeds: [embed] });
 }
 
@@ -925,17 +987,16 @@ async function handlePay(message) {
 //  ── FUN ──
 // ─────────────────────────────────────────────
 async function handleQuote(message) {
-  const cd = checkCooldown("quote", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("quote", message.author.id);
 
   const embed = brandEmbed("💭 Motivation")
-    .setDescription(`*${QUOTES[Math.floor(Math.random() * QUOTES.length)]}*`);
+    .setDescription(`*${QUOTES[Math.floor(Math.random() * QUOTES.length)]}*`)
+    .setFooter({ text: `${BOT_NAME} • Keep building 🧸` });
   return respond(message, { embeds: [embed] });
 }
 
 async function handleTip(message) {
-  const cd = checkCooldown("tip", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("tip", message.author.id);
 
   const embed = brandEmbed("💡 Scripting Tip")
     .setDescription(TIPS[Math.floor(Math.random() * TIPS.length)])
@@ -944,8 +1005,7 @@ async function handleTip(message) {
 }
 
 async function handleMeme(message) {
-  const cd = checkCooldown("meme", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("meme", message.author.id);
 
   try {
     const res = await fetch("https://meme-api.com/gimme/wholesomememes");
@@ -957,37 +1017,38 @@ async function handleMeme(message) {
       .setFooter({ text: `r/${m.subreddit} • 👍 ${m.ups || 0}` });
     return respond(message, { embeds: [embed] });
   } catch {
-    return respond(message, "❌ Couldn't grab a meme right now. Try again in a sec.");
+    return respond(message, { embeds: [errorEmbed("Meme Unavailable").setDescription("Couldn't grab a meme right now. Try again in a moment!")] });
   }
 }
 
 async function handle8Ball(message, args) {
-  const cd = checkCooldown("8ball", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("8ball", message.author.id);
 
   const question = args.join(" ").trim();
-  if (!question) return respond(message, `**Usage:** \`${PREFIX}8ball <your question>\``);
+  if (!question) return respond(message, { embeds: [warnEmbed("Missing Question").setDescription(`**Usage:** \`${PREFIX}8ball <your question>\``)] });
 
   const answer = EIGHT_BALL[Math.floor(Math.random() * EIGHT_BALL.length)];
   const embed = brandEmbed("🎱 Magic 8-Ball")
     .addFields(
-      { name: "Question", value: question.slice(0, 1000) },
-      { name: "Answer",   value: answer },
-    );
+      { name: "❓ Question", value: question.slice(0, 1000) },
+      { name: "🎱 Answer",   value: `**${answer}**` },
+    )
+    .setFooter({ text: `Asked by ${message.author.tag}` });
   return respond(message, { embeds: [embed] });
 }
 
 async function handleRate(message, args) {
-  const cd = checkCooldown("rate", message.author.id);
-  if (cd > 0) return respond(message, `⏱️ Slow down — try again in **${cd}s**.`);
+  consumeCooldown("rate", message.author.id);
 
   const thing = args.join(" ").trim();
-  if (!thing) return respond(message, `**Usage:** \`${PREFIX}rate <thing to rate>\``);
+  if (!thing) return respond(message, { embeds: [warnEmbed("Missing Input").setDescription(`**Usage:** \`${PREFIX}rate <thing to rate>\``)] });
 
   const score = Math.floor(Math.random() * 11);
   const bar   = "█".repeat(score) + "░".repeat(10 - score);
+  const emoji = score >= 8 ? "🔥" : score >= 5 ? "😊" : score >= 3 ? "😐" : "💀";
   const embed = brandEmbed("📊 Rating")
-    .setDescription(`I rate **${thing}** a **${score}/10**\n\`${bar}\``);
+    .setDescription(`${emoji} I rate **${thing}** a **${score}/10**\n\`${bar}\``)
+    .setFooter({ text: `Rated by ${BOT_NAME}` });
   return respond(message, { embeds: [embed] });
 }
 
@@ -1002,16 +1063,22 @@ async function handleDaily(message) {
     const remaining = DAY_MS - elapsed;
     const h = Math.floor(remaining / 3_600_000);
     const m = Math.floor((remaining % 3_600_000) / 60_000);
-    return respond(message, `⏱️ You already claimed today's reward. Come back in **${h}h ${m}m**.`);
+    return respond(message, {
+      embeds: [warnEmbed("⏰ Already Claimed")
+        .setDescription(`You already claimed today's reward! Come back in **${h}h ${m}m**.`)
+        .setFooter({ text: "Daily rewards reset every 24 hours." })],
+    });
   }
 
   data.dailyClaims[userId] = now;
   saveData();
 
   const reward = DAILY_REWARDS[Math.floor(Math.random() * DAILY_REWARDS.length)];
-  const embed = successEmbed("🎁 Daily Reward")
+  const embed = successEmbed("🎁 Daily Reward Claimed!")
     .setDescription(reward)
-    .setFooter({ text: "Come back tomorrow for another!" });
+    .setThumbnail(message.author.displayAvatarURL())
+    .setFooter({ text: "Come back tomorrow for another reward!" })
+    .setTimestamp();
   return respond(message, { embeds: [embed] });
 }
 
@@ -1024,13 +1091,13 @@ async function handleTicket(message) {
 
 async function handleTicketPanel(message) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageChannels)) {
-    return respond(message, "❌ You need the **Manage Channels** permission to post the ticket panel.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Manage Channels** permission to post the ticket panel.")] });
   }
 
   const embed = brandEmbed(`🧸 ${BOT_NAME} — Open a Ticket`)
     .setDescription(
       "Need a commission, scripting help, or want to talk to staff?\n\n" +
-      "Click **Open Ticket** below and fill out a quick form. A private channel will be created for just you and staff."
+      "Click **Open Ticket** below and fill out a quick form.\nA private channel will be created just for you and staff."
     )
     .setFooter({ text: `${BOT_NAME} • Ticket System` });
 
@@ -1076,10 +1143,10 @@ async function buildTranscript(channel) {
 
 async function handleClose(message) {
   if (!message.channel.name?.startsWith("ticket-")) {
-    return respond(message, "❌ This command only works inside a ticket channel.");
+    return respond(message, { embeds: [errorEmbed("Wrong Channel").setDescription("This command only works inside a ticket channel.")] });
   }
 
-  await message.channel.send("Generating transcript…");
+  await message.channel.send({ embeds: [infoEmbed("📝 Generating Transcript…").setDescription("Please wait while we archive this ticket.")] });
 
   let transcript = "";
   try   { transcript = await buildTranscript(message.channel); }
@@ -1094,8 +1161,8 @@ async function handleClose(message) {
       if (target?.isTextBased()) {
         const embed = brandEmbed("🎟️ Ticket Closed")
           .addFields(
-            { name: "Channel",   value: `#${message.channel.name}` },
-            { name: "Closed by", value: message.author.tag },
+            { name: "📁 Channel",   value: `#${message.channel.name}` },
+            { name: "🔒 Closed by", value: message.author.tag },
           )
           .setTimestamp();
         await target.send({
@@ -1109,20 +1176,20 @@ async function handleClose(message) {
   data.stats.ticketsClosed = (data.stats.ticketsClosed || 0) + 1;
   saveData();
 
-  await message.channel.send("🔒 Closing this ticket in 5 seconds…");
+  await message.channel.send({ embeds: [warnEmbed("🔒 Ticket Closing").setDescription("This channel will be deleted in **5 seconds**.")] });
   setTimeout(() => message.channel.delete(`Ticket closed by ${message.author.tag}`).catch(console.error), 5000);
 }
 
 async function handleAddNote(message, args) {
   if (!message.channel.name?.startsWith("ticket-")) {
-    return respond(message, "❌ This command only works inside a ticket channel.");
+    return respond(message, { embeds: [errorEmbed("Wrong Channel").setDescription("This command only works inside a ticket channel.")] });
   }
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageMessages)) {
-    return respond(message, "❌ You need to be staff (Manage Messages) to add notes.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need staff permissions (Manage Messages) to add notes.")] });
   }
 
   const text = args.join(" ").trim();
-  if (!text) return respond(message, `**Usage:** \`${PREFIX}addnote <text>\``);
+  if (!text) return respond(message, { embeds: [warnEmbed("Missing Note").setDescription(`**Usage:** \`${PREFIX}addnote <text>\``)] });
 
   const embed = new EmbedBuilder()
     .setTitle("📝 Internal Staff Note")
@@ -1177,19 +1244,20 @@ async function openTicketForUser(channel, member, formAnswers) {
   if (formAnswers) {
     const detailsEmbed = brandEmbed("🎫 New Ticket Submission")
       .addFields(
-        { name: "Username",       value: formAnswers.username    || "—" },
-        { name: "Service Needed", value: formAnswers.service     || "—" },
-        { name: "Description",    value: formAnswers.description || "—" },
-        { name: "Budget",         value: formAnswers.budget      || "—", inline: true },
-        { name: "Payment",        value: formAnswers.payment     || "—", inline: true },
+        { name: "👤 Username",       value: formAnswers.username    || "—" },
+        { name: "🛠️ Service Needed", value: formAnswers.service     || "—" },
+        { name: "📝 Description",    value: formAnswers.description || "—" },
+        { name: "💰 Budget",         value: formAnswers.budget      || "—", inline: true },
+        { name: "💳 Payment",        value: formAnswers.payment     || "—", inline: true },
       )
       .setFooter({ text: `Submitted by ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
       .setTimestamp();
 
     await created.send({ content: `<@${member.id}> — a staff member will be with you shortly.`, embeds: [detailsEmbed], components: [closeRow] });
   } else {
-    const welcome = warnEmbed("🎟️ Ticket Opened")
-      .setDescription(`Hi <@${member.id}>, a staff member will be with you shortly.\nPlease describe your issue or commission request.\n\nUse \`${PREFIX}close\` to close this ticket.`);
+    const welcome = brandEmbed("🎟️ Ticket Opened!")
+      .setDescription(`Hi <@${member.id}>, welcome! A staff member will be with you shortly.\n\nPlease describe your issue or commission request in as much detail as possible.\n\nUse \`${PREFIX}close\` or the button below to close this ticket.`)
+      .setFooter({ text: `${BOT_NAME} • Ticket System` });
     await created.send({ content: `<@${member.id}>`, embeds: [welcome], components: [closeRow] });
   }
 
@@ -1231,9 +1299,9 @@ async function handlePortfolio(message, args) {
   const embed = brandEmbed(`🎨 Portfolio — ${work.title || `Entry #${work.id}`}`)
     .setURL(work.url)
     .addFields(
-      { name: "ID",    value: `#${work.id}`,                          inline: true },
-      { name: "Type",  value: isVid ? "🎥 Video" : "🖼️ Image",       inline: true },
-      { name: "Added", value: when,                                   inline: true },
+      { name: "🆔 ID",    value: `#${work.id}`,                          inline: true },
+      { name: "📂 Type",  value: isVid ? "🎥 Video" : "🖼️ Image",       inline: true },
+      { name: "📅 Added", value: when,                                   inline: true },
     )
     .setFooter({ text: `Page ${page} of ${total} • Use ${PREFIX}work <page> to browse` });
 
@@ -1241,14 +1309,14 @@ async function handlePortfolio(message, args) {
     embed.setImage(work.url);
     await respond(message, { embeds: [embed] });
   } else {
-    embed.setDescription(`[▶️ Open video](${work.url})`);
+    embed.setDescription(`[▶️ Click here to open the video](${work.url})`);
     await respond(message, { content: work.url, embeds: [embed] });
   }
 }
 
 async function handleAddWork(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild)) {
-    return respond(message, "❌ You need **Manage Server** to add portfolio entries.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** to add portfolio entries.")] });
   }
 
   let url = null, title = "";
@@ -1259,16 +1327,16 @@ async function handleAddWork(message, args) {
     if (attach) { url = attach.url; title = args.join(" ").trim(); }
   }
 
-  if (!url) return respond(message, `**Usage:** \`${PREFIX}addwork <url> [title]\` — or attach an image/video.`);
-  if (!looksLikeMediaUrl(url)) return respond(message, "❌ That doesn't look like a direct media link.");
+  if (!url) return respond(message, { embeds: [warnEmbed("Missing URL").setDescription(`**Usage:** \`${PREFIX}addwork <url> [title]\` — or attach an image/video.`)] });
+  if (!looksLikeMediaUrl(url)) return respond(message, { embeds: [errorEmbed("Invalid URL").setDescription("That doesn't look like a direct media link.")] });
 
   const work = { id: data.nextWorkId++, url, title: title || null, addedBy: message.author.tag, addedById: message.author.id, timestamp: new Date().toISOString() };
   data.portfolio.push(work);
   saveData();
 
-  const embed = successEmbed(`✅ Added to Portfolio — #${work.id}`)
-    .setDescription(work.title || `Use \`${PREFIX}work\` to view the gallery.`)
-    .setFooter({ text: `Added by ${message.author.tag} • Total: ${data.portfolio.length}` })
+  const embed = successEmbed(`✅ Portfolio Entry #${work.id} Added`)
+    .setDescription(work.title || `View it with \`${PREFIX}work\`.`)
+    .setFooter({ text: `Added by ${message.author.tag} • Total: ${data.portfolio.length} entries` })
     .setTimestamp();
   if (!isVideoUrl(work.url)) embed.setImage(work.url);
 
@@ -1278,19 +1346,19 @@ async function handleAddWork(message, args) {
 
 async function handleRemoveWork(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild)) {
-    return respond(message, "❌ You need **Manage Server** to remove portfolio entries.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** to remove portfolio entries.")] });
   }
 
   const id = Number(args[0]);
-  if (!Number.isFinite(id)) return respond(message, `**Usage:** \`${PREFIX}removework <id>\``);
+  if (!Number.isFinite(id)) return respond(message, { embeds: [warnEmbed("Missing ID").setDescription(`**Usage:** \`${PREFIX}removework <id>\``)] });
 
   const idx = data.portfolio.findIndex(w => w.id === id);
-  if (idx === -1) return respond(message, `❌ No portfolio entry with ID **#${id}** found.`);
+  if (idx === -1) return respond(message, { embeds: [errorEmbed("Not Found").setDescription(`No portfolio entry with ID **#${id}** found.`)] });
 
   const removed = data.portfolio.splice(idx, 1)[0];
   saveData();
 
-  const embed = errorEmbed(`🗑️ Removed Portfolio Entry — #${removed.id}`)
+  const embed = warnEmbed(`🗑️ Removed Portfolio Entry #${removed.id}`)
     .setDescription(removed.title || "(no title)")
     .setFooter({ text: `Removed by ${message.author.tag}` })
     .setTimestamp();
@@ -1303,24 +1371,24 @@ async function handleRemoveWork(message, args) {
 // ─────────────────────────────────────────────
 async function handleBan(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.BanMembers))
-    return respond(message, "❌ You need the **Ban Members** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Ban Members** permission.")] });
   if (!message.guild.members.me.permissions.has(PermissionFlagsBits.BanMembers))
-    return respond(message, "❌ I'm missing the **Ban Members** permission.");
+    return respond(message, { embeds: [errorEmbed("Missing Bot Permission").setDescription("I'm missing the **Ban Members** permission.")] });
 
   const userId = parseUserId(args[0]);
-  if (!userId)                       return respond(message, `**Usage:** \`${PREFIX}ban <@user> <reason>\``);
-  if (userId === message.author.id)  return respond(message, "❌ You can't ban yourself.");
-  if (userId === client.user.id)     return respond(message, "❌ I can't ban myself.");
+  if (!userId)                       return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}ban <@user> <reason>\``)] });
+  if (userId === message.author.id)  return respond(message, { embeds: [errorEmbed("Error").setDescription("You can't ban yourself.")] });
+  if (userId === client.user.id)     return respond(message, { embeds: [errorEmbed("Error").setDescription("I can't ban myself.")] });
 
   const reason = args.slice(1).join(" ").trim() || "No reason provided";
   try { await message.guild.bans.create(userId, { reason: `By ${message.author.tag}: ${reason}` }); }
-  catch (err) { console.error("Ban failed:", err); return respond(message, "❌ Failed to ban that user. Check my role hierarchy."); }
+  catch (err) { console.error("Ban failed:", err); return respond(message, { embeds: [errorEmbed("Ban Failed").setDescription("Failed to ban that user. Check my role hierarchy.")] }); }
 
   const embed = errorEmbed("🔨 User Banned")
     .addFields(
-      { name: "User",      value: `<@${userId}> (${userId})` },
-      { name: "Reason",    value: reason },
-      { name: "Moderator", value: message.author.tag },
+      { name: "👤 User",      value: `<@${userId}> (${userId})` },
+      { name: "📋 Reason",    value: reason },
+      { name: "🛡️ Moderator", value: message.author.tag },
     )
     .setTimestamp();
   await respond(message, { embeds: [embed] });
@@ -1329,29 +1397,29 @@ async function handleBan(message, args) {
 
 async function handleKick(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.KickMembers))
-    return respond(message, "❌ You need the **Kick Members** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Kick Members** permission.")] });
   if (!message.guild.members.me.permissions.has(PermissionFlagsBits.KickMembers))
-    return respond(message, "❌ I'm missing the **Kick Members** permission.");
+    return respond(message, { embeds: [errorEmbed("Missing Bot Permission").setDescription("I'm missing the **Kick Members** permission.")] });
 
   const userId = parseUserId(args[0]);
-  if (!userId)                       return respond(message, `**Usage:** \`${PREFIX}kick <@user> [reason]\``);
-  if (userId === message.author.id)  return respond(message, "❌ You can't kick yourself.");
-  if (userId === client.user.id)     return respond(message, "❌ I can't kick myself.");
+  if (!userId)                       return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}kick <@user> [reason]\``)] });
+  if (userId === message.author.id)  return respond(message, { embeds: [errorEmbed("Error").setDescription("You can't kick yourself.")] });
+  if (userId === client.user.id)     return respond(message, { embeds: [errorEmbed("Error").setDescription("I can't kick myself.")] });
 
   const reason = args.slice(1).join(" ").trim() || "No reason provided";
   let target;
   try   { target = await message.guild.members.fetch(userId); }
-  catch { return respond(message, "❌ That user isn't in this server."); }
-  if (!target.kickable) return respond(message, "❌ I can't kick that user (role hierarchy).");
+  catch { return respond(message, { embeds: [errorEmbed("Not Found").setDescription("That user isn't in this server.")] }); }
+  if (!target.kickable) return respond(message, { embeds: [errorEmbed("Kick Failed").setDescription("I can't kick that user (role hierarchy).")] });
 
   try { await target.kick(`By ${message.author.tag}: ${reason}`); }
-  catch (err) { console.error("Kick failed:", err); return respond(message, "❌ Failed to kick that user."); }
+  catch (err) { console.error("Kick failed:", err); return respond(message, { embeds: [errorEmbed("Kick Failed").setDescription("Failed to kick that user.")] }); }
 
   const embed = warnEmbed("👢 User Kicked")
     .addFields(
-      { name: "User",      value: `<@${userId}> (${userId})` },
-      { name: "Reason",    value: reason },
-      { name: "Moderator", value: message.author.tag },
+      { name: "👤 User",      value: `<@${userId}> (${userId})` },
+      { name: "📋 Reason",    value: reason },
+      { name: "🛡️ Moderator", value: message.author.tag },
     )
     .setTimestamp();
   await respond(message, { embeds: [embed] });
@@ -1360,34 +1428,34 @@ async function handleKick(message, args) {
 
 async function handleMute(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.ModerateMembers))
-    return respond(message, "❌ You need the **Timeout Members** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Timeout Members** permission.")] });
   if (!message.guild.members.me.permissions.has(PermissionFlagsBits.ModerateMembers))
-    return respond(message, "❌ I'm missing the **Timeout Members** permission.");
+    return respond(message, { embeds: [errorEmbed("Missing Bot Permission").setDescription("I'm missing the **Timeout Members** permission.")] });
 
   const userId = parseUserId(args[0]);
-  if (!userId || !args[1]) return respond(message, `**Usage:** \`${PREFIX}mute <@user> <time> [reason]\` — e.g. \`10m\`, \`1h\`, \`1d\``);
-  if (userId === message.author.id) return respond(message, "❌ You can't mute yourself.");
-  if (userId === client.user.id)    return respond(message, "❌ I can't mute myself.");
+  if (!userId || !args[1]) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}mute <@user> <time> [reason]\` — e.g. \`10m\`, \`1h\`, \`1d\``)] });
+  if (userId === message.author.id) return respond(message, { embeds: [errorEmbed("Error").setDescription("You can't mute yourself.")] });
+  if (userId === client.user.id)    return respond(message, { embeds: [errorEmbed("Error").setDescription("I can't mute myself.")] });
 
   const ms = parseDuration(args[1]);
-  if (!ms) return respond(message, "❌ Invalid duration. Use formats like `30s`, `10m`, `2h`, `1d`.");
-  if (ms > 28 * TIME_UNITS.d) return respond(message, "❌ Maximum mute duration is 28 days.");
+  if (!ms) return respond(message, { embeds: [errorEmbed("Invalid Duration").setDescription("Use formats like `30s`, `10m`, `2h`, `1d`.")] });
+  if (ms > 28 * TIME_UNITS.d) return respond(message, { embeds: [errorEmbed("Too Long").setDescription("Maximum mute duration is **28 days**.")] });
 
   const reason = args.slice(2).join(" ").trim() || "No reason provided";
   let target;
   try   { target = await message.guild.members.fetch(userId); }
-  catch { return respond(message, "❌ That user isn't in this server."); }
-  if (!target.moderatable) return respond(message, "❌ I can't mute that user (role hierarchy).");
+  catch { return respond(message, { embeds: [errorEmbed("Not Found").setDescription("That user isn't in this server.")] }); }
+  if (!target.moderatable) return respond(message, { embeds: [errorEmbed("Mute Failed").setDescription("I can't mute that user (role hierarchy).")] });
 
   try { await target.timeout(ms, `By ${message.author.tag}: ${reason}`); }
-  catch (err) { console.error("Mute failed:", err); return respond(message, "❌ Failed to mute that user."); }
+  catch (err) { console.error("Mute failed:", err); return respond(message, { embeds: [errorEmbed("Mute Failed").setDescription("Failed to mute that user.")] }); }
 
   const embed = warnEmbed("🔇 User Muted")
     .addFields(
-      { name: "User",      value: `<@${userId}> (${userId})` },
-      { name: "Duration",  value: formatDuration(ms),         inline: true },
-      { name: "Reason",    value: reason,                     inline: true },
-      { name: "Moderator", value: message.author.tag },
+      { name: "👤 User",       value: `<@${userId}> (${userId})` },
+      { name: "⏱️ Duration",   value: formatDuration(ms),         inline: true },
+      { name: "📋 Reason",     value: reason,                     inline: true },
+      { name: "🛡️ Moderator",  value: message.author.tag },
     )
     .setTimestamp();
   await respond(message, { embeds: [embed] });
@@ -1396,12 +1464,12 @@ async function handleMute(message, args) {
 
 async function handleWarn(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.ModerateMembers))
-    return respond(message, "❌ You need the **Timeout Members** permission to issue warnings.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Timeout Members** permission to issue warnings.")] });
 
   const userId = parseUserId(args[0]);
-  if (!userId) return respond(message, `**Usage:** \`${PREFIX}warn <@user> <reason>\``);
+  if (!userId) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}warn <@user> <reason>\``)] });
   const reason = args.slice(1).join(" ").trim();
-  if (!reason) return respond(message, "❌ Please include a reason for the warning.");
+  if (!reason) return respond(message, { embeds: [errorEmbed("Missing Reason").setDescription("Please include a reason for the warning.")] });
 
   const warn = { id: data.nextWarnId++, reason, moderatorId: message.author.id, at: new Date().toISOString() };
   if (!data.warns[userId]) data.warns[userId] = [];
@@ -1411,11 +1479,11 @@ async function handleWarn(message, args) {
   const total = data.warns[userId].length;
   const embed = warnEmbed("⚠️ User Warned")
     .addFields(
-      { name: "User",            value: `<@${userId}>`,       inline: true },
-      { name: "Warning ID",      value: `#${warn.id}`,        inline: true },
-      { name: "Total Warnings",  value: `${total}`,           inline: true },
-      { name: "Reason",          value: reason },
-      { name: "Moderator",       value: message.author.tag },
+      { name: "👤 User",            value: `<@${userId}>`,       inline: true },
+      { name: "🆔 Warning ID",      value: `#${warn.id}`,        inline: true },
+      { name: "📊 Total Warnings",  value: `${total}`,           inline: true },
+      { name: "📋 Reason",          value: reason },
+      { name: "🛡️ Moderator",       value: message.author.tag },
     )
     .setTimestamp();
 
@@ -1427,8 +1495,8 @@ async function handleWarn(message, args) {
     await target.send({
       embeds: [warnEmbed(`⚠️ You were warned in ${message.guild.name}`)
         .addFields(
-          { name: "Reason",         value: reason },
-          { name: "Total Warnings", value: `${total}` },
+          { name: "📋 Reason",         value: reason },
+          { name: "📊 Total Warnings", value: `${total}` },
         )
         .setTimestamp()],
     });
@@ -1437,35 +1505,35 @@ async function handleWarn(message, args) {
 
 async function handleWarns(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.ModerateMembers))
-    return respond(message, "❌ You need the **Timeout Members** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Timeout Members** permission.")] });
 
   const userId = parseUserId(args[0]);
-  if (!userId) return respond(message, `**Usage:** \`${PREFIX}warns <@user>\``);
+  if (!userId) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}warns <@user>\``)] });
 
   const list = data.warns[userId] || [];
   const embed = new EmbedBuilder()
-    .setTitle(`⚠️ Warnings — ${list.length} total`)
+    .setTitle(`⚠️ Warning History — ${list.length} total`)
     .setDescription(`<@${userId}>`)
     .setColor(list.length ? WARN_COLOR : SUCCESS_COLOR);
 
   if (!list.length) {
-    embed.addFields({ name: "✅ Clean", value: "This user has no warnings." });
+    embed.addFields({ name: "✅ Clean Record", value: "This user has no warnings on file." });
   } else {
     list.slice(-10).forEach(w => {
       const when = w.at ? `<t:${Math.floor(new Date(w.at).getTime() / 1000)}:R>` : "—";
       embed.addFields({ name: `#${w.id} • ${when}`, value: `**Reason:** ${w.reason || "—"}\n**By:** <@${w.moderatorId || "—"}>` });
     });
-    if (list.length > 10) embed.setFooter({ text: `Showing the most recent 10 of ${list.length}.` });
+    if (list.length > 10) embed.setFooter({ text: `Showing the most recent 10 of ${list.length} warnings.` });
   }
   await respond(message, { embeds: [embed] });
 }
 
 async function handleUnwarn(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.ModerateMembers))
-    return respond(message, "❌ You need the **Timeout Members** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Timeout Members** permission.")] });
 
   const id = Number(args[0]);
-  if (!Number.isFinite(id)) return respond(message, `**Usage:** \`${PREFIX}unwarn <warning_id>\``);
+  if (!Number.isFinite(id)) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}unwarn <warning_id>\``)] });
 
   let removed = null, removedFrom = null;
   for (const [uid, list] of Object.entries(data.warns)) {
@@ -1477,15 +1545,15 @@ async function handleUnwarn(message, args) {
       break;
     }
   }
-  if (!removed) return respond(message, `❌ No warning with ID **#${id}** found.`);
+  if (!removed) return respond(message, { embeds: [errorEmbed("Not Found").setDescription(`No warning with ID **#${id}** found.`)] });
   saveData();
 
   const embed = successEmbed("✅ Warning Removed")
     .addFields(
-      { name: "Warning ID",     value: `#${id}`,              inline: true },
-      { name: "User",           value: `<@${removedFrom}>`,   inline: true },
-      { name: "Original Reason",value: removed.reason || "—" },
-      { name: "Removed By",     value: message.author.tag },
+      { name: "🆔 Warning ID",     value: `#${id}`,              inline: true },
+      { name: "👤 User",           value: `<@${removedFrom}>`,   inline: true },
+      { name: "📋 Original Reason",value: removed.reason || "—" },
+      { name: "🛡️ Removed By",     value: message.author.tag },
     )
     .setTimestamp();
   await respond(message, { embeds: [embed] });
@@ -1494,33 +1562,33 @@ async function handleUnwarn(message, args) {
 
 async function handlePurge(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.ManageMessages))
-    return respond(message, "❌ You need the **Manage Messages** permission.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Manage Messages** permission.")] });
   if (!message.guild.members.me.permissionsIn(message.channel).has(PermissionFlagsBits.ManageMessages))
-    return respond(message, "❌ I'm missing **Manage Messages** in this channel.");
+    return respond(message, { embeds: [errorEmbed("Missing Bot Permission").setDescription("I'm missing **Manage Messages** in this channel.")] });
 
   const count = parseInt(args[0], 10);
   if (!Number.isFinite(count) || count < 1 || count > 100)
-    return respond(message, `**Usage:** \`${PREFIX}purge <1-100>\``);
+    return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}purge <1-100>\``)] });
 
   try {
     const deleted = await message.channel.bulkDelete(count, true);
     const notice = await message.channel.send({
       embeds: [successEmbed("🧹 Channel Purged")
         .setDescription(`Deleted **${deleted.size}** message(s).`)
-        .setFooter({ text: `By ${message.author.tag}` })],
+        .setFooter({ text: `Purged by ${message.author.tag}` })],
     });
     setTimeout(() => notice.delete().catch(() => {}), 5000);
 
     await logMod(message.guild, warnEmbed("🧹 Messages Purged")
       .addFields(
-        { name: "Channel",   value: `<#${message.channel.id}>`, inline: true },
-        { name: "Count",     value: `${deleted.size}`,          inline: true },
-        { name: "Moderator", value: message.author.tag },
+        { name: "💬 Channel",   value: `<#${message.channel.id}>`, inline: true },
+        { name: "🔢 Count",     value: `${deleted.size}`,          inline: true },
+        { name: "🛡️ Moderator", value: message.author.tag },
       )
       .setTimestamp());
   } catch (err) {
     console.error("Purge failed:", err);
-    await respond(message, "❌ Failed to purge. Messages older than 14 days can't be bulk-deleted.");
+    await respond(message, { embeds: [errorEmbed("Purge Failed").setDescription("Messages older than 14 days can't be bulk-deleted.")] });
   }
 }
 
@@ -1528,13 +1596,13 @@ async function handlePurge(message, args) {
 //  ── ADMIN COMMANDS ──
 // ─────────────────────────────────────────────
 async function handleAddOrder(message, args) {
-  if (!isAdmin(message.member)) return respond(message, "❌ This command is admin only.");
-  if (args.length < 2) return respond(message, `**Usage:** \`${PREFIX}addorder <@user> <details>\``);
+  if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission").setDescription("This command is admin only.")] });
+  if (args.length < 2) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}addorder <@user> <details>\``)] });
 
   const userId = parseUserId(args[0]);
-  if (!userId) return respond(message, "❌ First argument must be a user mention or user ID.");
+  if (!userId) return respond(message, { embeds: [errorEmbed("Invalid User").setDescription("First argument must be a user mention or user ID.")] });
   const details = args.slice(1).join(" ").trim();
-  if (!details) return respond(message, "❌ Please include order details after the user.");
+  if (!details) return respond(message, { embeds: [errorEmbed("Missing Details").setDescription("Please include order details after the user.")] });
 
   const now = new Date().toISOString();
   const order = { id: data.nextOrderId++, userId, details, status: "pending", createdAt: now, updatedAt: now, createdBy: message.author.id };
@@ -1544,85 +1612,111 @@ async function handleAddOrder(message, args) {
 
   const embed = successEmbed(`✅ Order #${order.id} Created`)
     .addFields(
-      { name: "Customer", value: `<@${order.userId}>`,       inline: true },
-      { name: "Status",   value: statusBadge(order.status),  inline: true },
-      { name: "Details",  value: order.details },
+      { name: "👤 Customer", value: `<@${order.userId}>`,       inline: true },
+      { name: "📊 Status",   value: statusBadge(order.status),  inline: true },
+      { name: "📝 Details",  value: order.details },
     )
-    .setFooter({ text: `Added by ${message.author.tag}` });
+    .setFooter({ text: `Added by ${message.author.tag}` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
 async function handleComplete(message, args) {
-  if (!isAdmin(message.member)) return respond(message, "❌ This command is admin only.");
-  if (!args[0]) return respond(message, `**Usage:** \`${PREFIX}complete <id>\``);
+  if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission").setDescription("This command is admin only.")] });
+  if (!args[0]) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}complete <id>\``)] });
 
   const order = findOrder(args[0]);
-  if (!order) return respond(message, `❌ No order found with ID \`${args[0]}\`.`);
-  if (order.status === "completed") return respond(message, `❌ Order #${order.id} is already completed.`);
+  if (!order) return respond(message, { embeds: [errorEmbed("Not Found").setDescription(`No order found with ID \`${args[0]}\`.`)] });
+  if (order.status === "completed") return respond(message, { embeds: [warnEmbed("Already Done").setDescription(`Order #${order.id} is already marked as completed.`)] });
 
   order.status = "completed";
   order.updatedAt = new Date().toISOString();
   data.stats.ordersCompleted = (data.stats.ordersCompleted || 0) + 1;
   saveData();
 
-  const embed = successEmbed(`✅ Order #${order.id} Completed`)
+  const embed = successEmbed(`✅ Order #${order.id} Marked Complete`)
     .addFields(
-      { name: "Customer", value: `<@${order.userId}>` },
-      { name: "Details",  value: order.details },
+      { name: "👤 Customer", value: `<@${order.userId}>` },
+      { name: "📝 Details",  value: order.details },
     )
-    .setFooter({ text: `Marked complete by ${message.author.tag}` });
+    .setFooter({ text: `Marked complete by ${message.author.tag}` })
+    .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
 
+// ─────────────────────────────────────────────
+//  IMPROVED: s!announce — clean, professional styled announcement
+// ─────────────────────────────────────────────
 async function handleAnnounce(message, args) {
-  if (!isAdmin(message.member)) return respond(message, "❌ This command is admin only.");
+  if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission").setDescription("This command is admin only.")] });
   const text = args.join(" ").trim();
-  if (!text) return respond(message, `**Usage:** \`${PREFIX}announce <message>\``);
+  if (!text) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}announce <message>\``)] });
 
-  const embed = brandEmbed("📣 Announcement")
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle("📣 Announcement")
     .setDescription(text)
+    .setAuthor({ name: BOT_NAME, iconURL: client.user?.displayAvatarURL() })
     .setFooter({ text: `Posted by ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
     .setTimestamp();
 
-  await message.channel.send({ content: "@everyone", embeds: [embed], allowedMentions: { parse: ["everyone"] } });
+  // Delete the command message to keep it clean
+  await message.delete().catch(() => {});
+  await message.channel.send({
+    content: "||@everyone||",
+    embeds: [embed],
+    allowedMentions: { parse: ["everyone"] },
+  });
 }
 
+// ─────────────────────────────────────────────
+//  IMPROVED: s!partner — polished partnership announcement
+// ─────────────────────────────────────────────
 async function handlePartner(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild)) {
-    return respond(message, "❌ You need the **Manage Server** permission to post partnerships.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need the **Manage Server** permission to post partnerships.")] });
   }
   if (args.length < 2) {
-    return respond(message,
-      `**Usage:** \`${PREFIX}partner <invite> <server description>\`\n` +
-      `**Example:** \`${PREFIX}partner https://discord.gg/abc A chill art community with daily events!\``
-    );
+    return respond(message, {
+      embeds: [warnEmbed("Usage")
+        .setDescription(
+          `\`${PREFIX}partner <invite> <server description>\`\n\n` +
+          `**Example:** \`${PREFIX}partner https://discord.gg/abc A chill art community with daily events!\``
+        )],
+    });
   }
 
   const invite = args[0];
   const info   = args.slice(1).join(" ").trim();
 
   if (!/^https?:\/\/(discord\.gg|discord\.com\/invite|dsc\.gg)\//i.test(invite)) {
-    return respond(message, "❌ Please provide a valid Discord invite link (e.g. `https://discord.gg/abcd`).");
+    return respond(message, { embeds: [errorEmbed("Invalid Invite").setDescription("Please provide a valid Discord invite link (e.g. `https://discord.gg/abcd`).")] });
   }
 
-  const embed = brandEmbed("🤝 New Partnership!")
-    .setDescription(
-      `We're excited to partner with a new community! Check them out below.\n\u200b`
-    )
+  const embed = new EmbedBuilder()
+    .setColor(INFO_COLOR)
+    .setTitle("🤝 New Partnership!")
+    .setDescription("We've partnered with an awesome community — go check them out! 👇")
     .addFields(
-      { name: "📋 About the Server",  value: info },
-      { name: "🔗 Join the Server",   value: invite },
+      { name: "📋 About",       value: info },
+      { name: "🔗 Join Server", value: `[Click here to join!](${invite})` },
     )
-    .setFooter({ text: `Partnership posted by ${message.author.tag} • ${BOT_NAME}`, iconURL: message.author.displayAvatarURL() })
+    .setAuthor({ name: BOT_NAME, iconURL: client.user?.displayAvatarURL() })
+    .setFooter({ text: `Partnership announced by ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
     .setTimestamp();
 
-  await message.channel.send({ content: "@here — New partnership!", embeds: [embed], allowedMentions: { parse: ["everyone"] } });
+  await message.delete().catch(() => {});
+  await message.channel.send({
+    content: "||@here|| — Check out our new partner!",
+    embeds: [embed],
+    allowedMentions: { parse: ["here"] },
+  });
 }
 
 async function handleBlacklist(message, args) {
-  if (!isAdmin(message.member)) return respond(message, "❌ This command is admin only.");
+  if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission").setDescription("This command is admin only.")] });
   const userId = parseUserId(args[0]);
-  if (!userId) return respond(message, `**Usage:** \`${PREFIX}blacklist <@user>\``);
+  if (!userId) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}blacklist <@user>\``)] });
 
   const idx = data.blacklist.indexOf(userId);
   let action;
@@ -1641,7 +1735,7 @@ async function handleBlacklist(message, args) {
 }
 
 async function handleSetLog(message, args) {
-  if (!isAdmin(message.member)) return respond(message, "❌ Only administrators can change the mod log channel.");
+  if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission").setDescription("Only administrators can change the mod log channel.")] });
 
   if (!args[0]) {
     if (data.modLogChannels[message.guild.id]) {
@@ -1649,63 +1743,64 @@ async function handleSetLog(message, args) {
       saveData();
       return respond(message, { embeds: [warnEmbed("📓 Mod Log Disabled").setDescription("Logging has been turned off for this server.")] });
     }
-    return respond(message, `**Usage:** \`${PREFIX}setlog #channel\` — omit to disable.`);
+    return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}setlog #channel\` — omit to disable.`)] });
   }
 
   const m = args[0].match(/^<#(\d+)>$/) || args[0].match(/^(\d{17,20})$/);
-  if (!m) return respond(message, `**Usage:** \`${PREFIX}setlog #channel\``);
+  if (!m) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}setlog #channel\``)] });
 
   const channelId = m[1];
   const ch = await message.guild.channels.fetch(channelId).catch(() => null);
-  if (!ch?.isTextBased()) return respond(message, "❌ That channel doesn't exist or isn't a text channel.");
+  if (!ch?.isTextBased()) return respond(message, { embeds: [errorEmbed("Invalid Channel").setDescription("That channel doesn't exist or isn't a text channel.")] });
   if (!message.guild.members.me.permissionsIn(ch).has(PermissionFlagsBits.SendMessages))
-    return respond(message, `❌ I can't send messages in <#${channelId}>. Please give me **Send Messages** there.`);
+    return respond(message, { embeds: [errorEmbed("Missing Permission").setDescription(`I can't send messages in <#${channelId}>. Please give me **Send Messages** there.`)] });
 
   data.modLogChannels[message.guild.id] = channelId;
   saveData();
 
-  const embed = successEmbed("📓 Mod Log Set")
+  const embed = successEmbed("📓 Mod Log Channel Set")
     .setDescription(`Moderation events will now be logged in <#${channelId}>.`)
     .setFooter({ text: `By ${message.author.tag}` });
   await respond(message, { embeds: [embed] });
-  await ch.send({ embeds: [successEmbed("✅ Mod Log Connected").setDescription(`This channel is now receiving logs from **${BOT_NAME}**.`)] });
+  await ch.send({ embeds: [successEmbed("✅ Mod Log Connected").setDescription(`This channel is now receiving mod logs from **${BOT_NAME}**.`)] });
 }
 
 async function handleSetReviews(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild))
-    return respond(message, "❌ You need **Manage Server** to set the reviews channel.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** to set the reviews channel.")] });
 
   const settings = getGuildSettings(message.guild.id);
-  if (!args[0]) { delete settings.reviewsChannelId; saveData(); return respond(message, "✅ Reviews channel cleared."); }
+  if (!args[0]) { delete settings.reviewsChannelId; saveData(); return respond(message, { embeds: [successEmbed("✅ Reviews Channel Cleared").setDescription("The reviews channel has been unset.")] }); }
 
   const channelId = parseChannelId(args[0]);
-  if (!channelId) return respond(message, `**Usage:** \`${PREFIX}setreviews #channel\` (or omit to clear).`);
+  if (!channelId) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}setreviews #channel\` (or omit to clear).`)] });
   settings.reviewsChannelId = channelId;
   saveData();
-  return respond(message, `✅ Reviews channel set to <#${channelId}>.`);
+  return respond(message, { embeds: [successEmbed("✅ Reviews Channel Set").setDescription(`Reviews will now be posted in <#${channelId}>.`)] });
 }
 
 async function handleSetTranscripts(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild))
-    return respond(message, "❌ You need **Manage Server** to set the transcripts channel.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** to set the transcripts channel.")] });
 
   const settings = getGuildSettings(message.guild.id);
-  if (!args[0]) { delete settings.transcriptsChannelId; saveData(); return respond(message, "✅ Transcripts channel cleared."); }
+  if (!args[0]) { delete settings.transcriptsChannelId; saveData(); return respond(message, { embeds: [successEmbed("✅ Transcripts Channel Cleared").setDescription("The transcripts channel has been unset.")] }); }
 
   const channelId = parseChannelId(args[0]);
-  if (!channelId) return respond(message, `**Usage:** \`${PREFIX}settranscripts #channel\` (or omit to clear).`);
+  if (!channelId) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}settranscripts #channel\` (or omit to clear).`)] });
   settings.transcriptsChannelId = channelId;
   saveData();
-  return respond(message, `✅ Transcripts channel set to <#${channelId}>.`);
+  return respond(message, { embeds: [successEmbed("✅ Transcripts Channel Set").setDescription(`Ticket transcripts will now be saved in <#${channelId}>.`)] });
 }
 
 async function handleSay(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageMessages))
-    return respond(message, "❌ You need staff permissions to use this.");
+    return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need staff permissions to use this.")] });
 
   const text = args.join(" ").trim();
-  if (!text) return respond(message, `**Usage:** \`${PREFIX}say <message>\``);
+  if (!text) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}say <message>\``)] });
 
+  await message.delete().catch(() => {});
   await message.channel.send({ content: text, allowedMentions: { parse: ["users"] } });
 }
 
@@ -1743,7 +1838,7 @@ const commands = {
 };
 
 // ─────────────────────────────────────────────
-//  messageCreate
+//  messageCreate — FIXED cooldown logic
 // ─────────────────────────────────────────────
 const ADMIN_BYPASS = new Set(["blacklist"]);
 
@@ -1765,25 +1860,33 @@ client.on("messageCreate", async (message) => {
   // Blacklist check
   if (data.blacklist.includes(message.author.id)) {
     if (!(ADMIN_BYPASS.has(commandName) && isAdmin(message.member))) {
-      await message.channel.send("🚫 You are blacklisted from using this bot.").catch(() => {});
+      await message.channel.send({ embeds: [errorEmbed("🚫 Blacklisted").setDescription("You are not allowed to use this bot.")] }).catch(() => {});
       return;
     }
   }
 
-  // Cooldown — staff bypass
-  const isStaff = isAdmin(message.member) || hasPerm(message.member, PermissionFlagsBits.ManageMessages);
-  if (!isStaff) {
+  // ── FIXED COOLDOWN LOGIC ──
+  // Only apply cooldowns to specific spam-prone commands.
+  // Staff are NOT exempt — everyone plays by the same rules for fairness.
+  // We check BEFORE running, and only consume the cooldown inside the handler.
+  if (COOLDOWNS_MS[commandName]) {
     const wait = checkCooldown(commandName, message.author.id);
     if (wait > 0) {
-      await message.channel.send(`⏱️ Slow down — try \`${PREFIX}${commandName}\` again in **${wait}s**.`).catch(() => {});
+      await message.channel.send({
+        embeds: [warnEmbed("⏰ Slow Down!")
+          .setDescription(`You can use \`${PREFIX}${commandName}\` again in **${wait} second${wait === 1 ? "" : "s"}**.`)
+          .setFooter({ text: "Cooldowns help keep the channel clean." })],
+      }).catch(() => {});
       return;
     }
+    // Cooldown is clear — stamp it now so the next check is accurate
+    consumeCooldown(commandName, message.author.id);
   }
 
   try { await handler(message, args); }
   catch (err) {
     console.error(`Error handling ${PREFIX}${commandName}:`, err);
-    await message.channel.send("❌ Something went wrong while running that command.").catch(() => {});
+    await message.channel.send({ embeds: [errorEmbed("Something Went Wrong").setDescription("An unexpected error occurred while running that command.")] }).catch(() => {});
   }
 });
 
@@ -1795,9 +1898,9 @@ client.on("messageDelete", async (message) => {
     if (!message.guild || message.author?.bot || message.partial || !message.content) return;
     await logMod(message.guild, errorEmbed("🗑️ Message Deleted")
       .addFields(
-        { name: "Author",  value: `<@${message.author.id}> (${message.author.tag})`, inline: true },
-        { name: "Channel", value: `<#${message.channel.id}>`,                        inline: true },
-        { name: "Content", value: message.content.slice(0, 1024) },
+        { name: "👤 Author",  value: `<@${message.author.id}> (${message.author.tag})`, inline: true },
+        { name: "💬 Channel", value: `<#${message.channel.id}>`,                        inline: true },
+        { name: "📝 Content", value: message.content.slice(0, 1024) },
       )
       .setTimestamp());
   } catch (err) { console.error("messageDelete log failed:", err); }
@@ -1810,11 +1913,11 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await logMod(newMessage.guild, warnEmbed("✏️ Message Edited")
       .addFields(
-        { name: "Author",  value: `<@${newMessage.author.id}> (${newMessage.author.tag})`, inline: true },
-        { name: "Channel", value: `<#${newMessage.channel.id}>`,                           inline: true },
-        { name: "Before",  value: (oldMessage.content || "—").slice(0, 1024) },
-        { name: "After",   value: (newMessage.content  || "—").slice(0, 1024) },
-        { name: "Jump",    value: `[Go to message](${newMessage.url})` },
+        { name: "👤 Author",  value: `<@${newMessage.author.id}> (${newMessage.author.tag})`, inline: true },
+        { name: "💬 Channel", value: `<#${newMessage.channel.id}>`,                           inline: true },
+        { name: "📄 Before",  value: (oldMessage.content || "—").slice(0, 1024) },
+        { name: "✅ After",   value: (newMessage.content  || "—").slice(0, 1024) },
+        { name: "🔗 Jump",    value: `[Go to message](${newMessage.url})` },
       )
       .setTimestamp());
   } catch (err) { console.error("messageUpdate log failed:", err); }
@@ -1824,8 +1927,8 @@ client.on("guildMemberAdd", async (member) => {
   try {
     await logMod(member.guild, successEmbed("📥 Member Joined")
       .addFields(
-        { name: "User",            value: `<@${member.id}> (${member.user.tag})` },
-        { name: "Account Created", value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` },
+        { name: "👤 User",            value: `<@${member.id}> (${member.user.tag})` },
+        { name: "📅 Account Created", value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` },
       )
       .setThumbnail(member.user.displayAvatarURL())
       .setTimestamp());
@@ -1835,10 +1938,10 @@ client.on("guildMemberAdd", async (member) => {
 client.on("guildMemberRemove", async (member) => {
   try {
     const embed = errorEmbed("📤 Member Left")
-      .addFields({ name: "User", value: `<@${member.id}> (${member.user.tag})` })
+      .addFields({ name: "👤 User", value: `<@${member.id}> (${member.user.tag})` })
       .setThumbnail(member.user.displayAvatarURL())
       .setTimestamp();
-    if (member.joinedTimestamp) embed.addFields({ name: "Joined", value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` });
+    if (member.joinedTimestamp) embed.addFields({ name: "📅 Joined", value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` });
     await logMod(member.guild, embed);
   } catch (err) { console.error("guildMemberRemove log failed:", err); }
 });
@@ -1882,7 +1985,7 @@ client.on("interactionCreate", async (interaction) => {
         if (!isStaff && !isOwner) {
           return interaction.reply({ content: "❌ Only the ticket owner or staff can close this ticket.", flags: MessageFlags.Ephemeral });
         }
-        await interaction.reply({ content: "🔒 Closing this ticket in 5 seconds…" });
+        await interaction.reply({ embeds: [warnEmbed("🔒 Closing Ticket").setDescription("This channel will be deleted in **5 seconds**.")] });
         setTimeout(() => channel.delete(`Ticket closed by ${interaction.user.tag}`).catch(console.error), 5000);
         return;
       }
