@@ -14,12 +14,14 @@ const {
   TextInputBuilder,
   TextInputStyle,
   MessageFlags,
-  AuditLogEvent,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } = require("discord.js");
 
 // ─────────────────────────────────────────────
 //  Environment
 // ─────────────────────────────────────────────
+require("dotenv").config();
 const TOKEN = (process.env.DISCORD_TOKEN || "").trim();
 if (!TOKEN) {
   console.error("Missing DISCORD_TOKEN environment variable. Set it in Replit Secrets and restart.");
@@ -31,7 +33,7 @@ if (!TOKEN) {
 // ─────────────────────────────────────────────
 const PREFIX        = "s!";
 const BOT_NAME      = "Snuggles Scripting";
-const BOT_VERSION   = "2.0.0";
+const BOT_VERSION   = "3.0.0";
 const BOT_OWNER     = "Snuggles";
 const BRAND_COLOR   = 0xff8fb1;
 const SUCCESS_COLOR = 0x57f287;
@@ -48,6 +50,10 @@ const LEVELUP_CHANNEL_ID    = "1497080845406699580";
 const STICKY_CHANNEL_ID     = "1497080844416975028";
 const HOME_GUILD_ID         = "1497048032661864649";
 
+// ── Guild join/leave log channels (home guild only) ──
+const GUILD_JOIN_LOG_CHANNEL  = "1497080855913300144";
+const GUILD_LEAVE_LOG_CHANNEL = "1497080856941166703";
+
 const STICKY_MESSAGE_TEXT =
   "✨ **Want to leave a review?**\n\n" +
   "Use `s!review <1-5> <type> | <your message>` to share your experience!\n" +
@@ -57,11 +63,11 @@ const STICKY_MESSAGE_TEXT =
 // ─────────────────────────────────────────────
 //  XP / Leveling config
 // ─────────────────────────────────────────────
-const XP_PER_MESSAGE   = 15;     // base XP per message
-const XP_COOLDOWN_MS   = 60_000; // 1 minute between XP grants
-const XP_VARIANCE      = 10;     // ±10 random XP added
-const BASE_XP_REQUIRED = 100;    // XP needed for level 1→2
-const XP_SCALING       = 1.35;   // multiplier per level
+const XP_PER_MESSAGE   = 15;
+const XP_COOLDOWN_MS   = 60_000;
+const XP_VARIANCE      = 10;
+const BASE_XP_REQUIRED = 100;
+const XP_SCALING       = 1.35;
 
 function xpForLevel(level) {
   return Math.floor(BASE_XP_REQUIRED * Math.pow(XP_SCALING, level - 1));
@@ -77,7 +83,7 @@ function totalXpForLevel(level) {
 // ─────────────────────────────────────────────
 const COINS_PER_MESSAGE   = 5;
 const COINS_COOLDOWN_MS   = 30_000;
-const WORK_COOLDOWN_MS    = 3_600_000; // 1 hour
+const WORK_COOLDOWN_MS    = 3_600_000;
 const SHOP_ITEMS = [
   { id: "role_color",     name: "🎨 Custom Role Color",   price: 500,  desc: "Request a custom color for your role (staff applies it)." },
   { id: "code_review",    name: "🔍 Code Review Voucher", price: 300,  desc: "Get a free in-depth code review from staff." },
@@ -321,15 +327,14 @@ function defaultData() {
     orders: [], blacklist: [], warns: {}, modLogChannels: {},
     portfolio: [], reviews: [], dailyClaims: {}, settings: {},
     stats: { ticketsOpened: 0, ticketsClosed: 0, ordersCreated: 0, ordersCompleted: 0, reviewsSubmitted: 0 },
-    // New systems
-    leveling: {},        // { userId: { xp, level, lastXpAt } }
-    economy: {},         // { userId: { coins, lastWorkAt, inventory: [] } }
-    invites: {},         // { guildId: { userId: { invited, left, bonus } } }
-    inviteCache: {},     // { guildId: { inviteCode: uses } }
-    stickyMessages: {},  // { channelId: messageId }
-    partnerships: [],    // array of partnership objects
-    triviaActive: {},    // { channelId: { question, answer, hint, hostId, messageId, rewardCoins } }
-    giveaways: {},       // { messageId: { prize, endAt, entries, channelId, guildId, hostId } }
+    leveling: {},
+    economy: {},
+    invites: {},
+    inviteCache: {},
+    stickyMessages: {},
+    partnerships: [],
+    triviaActive: {},
+    giveaways: {},
   };
 }
 
@@ -399,19 +404,18 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [Partials.Channel, Partials.GuildMember],
+  partials: [Partials.Channel, Partials.GuildMember, Partials.Message, Partials.Reaction],
 });
 
 client.once("clientReady", async () => {
   console.log(`${BOT_NAME} v${BOT_VERSION} ready.`);
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Serving ${client.guilds.cache.size} guild(s).`);
-  // Cache all invites on startup
   for (const [, guild] of client.guilds.cache) {
     await cacheInvites(guild).catch(() => {});
   }
-  // Start giveaway checker
   setInterval(checkGiveaways, 10_000);
 });
 
@@ -571,46 +575,16 @@ async function sendSetupMessage(guild) {
       `All commands use the \`${PREFIX}\` prefix. Here's a quick setup guide:`
     )
     .addFields(
-      {
-        name: "📓 Step 1 — Set Mod Log Channel",
-        value: `\`${PREFIX}setlog #channel\` — All mod events (bans, kicks, warnings, edits, deletions) are posted here.`,
-      },
-      {
-        name: "⭐ Step 2 — Set Reviews Channel",
-        value: `\`${PREFIX}setreviews #channel\` — Where \`${PREFIX}review\` and \`${PREFIX}vouch\` posts appear publicly.`,
-      },
-      {
-        name: "🎟️ Step 3 — Set Ticket Transcripts Channel",
-        value: `\`${PREFIX}settranscripts #channel\` — Closed ticket transcripts are saved here.`,
-      },
-      {
-        name: "🎫 Step 4 — Post Ticket Panel",
-        value: `\`${PREFIX}ticketpanel\` — Posts a button panel in the current channel for users to open tickets.`,
-      },
-      {
-        name: "📋 Step 5 — Commission Queue",
-        value: `Use \`${PREFIX}addorder @user <details>\` to track commissions. Customers can check \`${PREFIX}queue\` anytime.`,
-      },
-      {
-        name: "🎨 Step 6 — Portfolio",
-        value: `\`${PREFIX}addwork <url> [title]\` — Add screenshots/videos to your public portfolio gallery.`,
-      },
-      {
-        name: "📈 Leveling & Economy",
-        value: "XP and coins are awarded automatically from chatting. No config needed — it works out of the box!",
-      },
-      {
-        name: "🤝 Partnerships",
-        value: `\`${PREFIX}partner <format> <invite> [info]\` — Post partnership announcements. See \`${PREFIX}partner help\` for all formats.`,
-      },
-      {
-        name: "📣 Announcements",
-        value: `\`${PREFIX}announce [#channel] <message>\` — Send a styled announcement. Optionally target a channel.`,
-      },
-      {
-        name: "🆘 Need Help?",
-        value: `Use \`${PREFIX}help\` for the full command list. Bot errors are automatically reported to the developer.`,
-      },
+      { name: "📓 Step 1 — Set Mod Log Channel", value: `\`${PREFIX}setlog #channel\`` },
+      { name: "⭐ Step 2 — Set Reviews Channel", value: `\`${PREFIX}setreviews #channel\`` },
+      { name: "🎟️ Step 3 — Set Ticket Transcripts Channel", value: `\`${PREFIX}settranscripts #channel\`` },
+      { name: "🎫 Step 4 — Post Ticket Panel", value: `\`${PREFIX}ticketpanel\` — Posts a 3-button panel (Order, Partnership, General Inquiry).` },
+      { name: "📋 Step 5 — Commission Queue", value: `\`${PREFIX}addorder @user <details>\`` },
+      { name: "🎨 Step 6 — Portfolio", value: `\`${PREFIX}addwork <url> [title]\`` },
+      { name: "📈 Leveling & Economy", value: "XP and coins are awarded automatically from chatting." },
+      { name: "🤝 Partnerships", value: `\`${PREFIX}partner help\`` },
+      { name: "📣 Announcements", value: `\`${PREFIX}announce [#channel] <message>\`` },
+      { name: "🆘 Need Help?", value: `Use \`${PREFIX}help\` for the full command list.` },
     )
     .setFooter({ text: `${BOT_NAME} • Made with 💗 by ${BOT_OWNER}` })
     .setTimestamp();
@@ -638,7 +612,6 @@ async function handleXpGrant(message) {
     lv.xp -= needed;
     lv.level++;
     saveData();
-    // Announce level up
     try {
       const lvUpChannel = message.guild?.channels.cache.get(LEVELUP_CHANNEL_ID);
       const ch = lvUpChannel || message.channel;
@@ -715,7 +688,6 @@ async function handleRank(message, args) {
   const warns = (data.warns[userId] || []).length;
   const needed = xpForLevel(lv.level);
 
-  // Calculate global rank
   const allUsers = Object.entries(data.leveling)
     .sort((a, b) => b[1].level !== a[1].level ? b[1].level - a[1].level : b[1].xp - a[1].xp);
   const rank = allUsers.findIndex(([id]) => id === userId) + 1;
@@ -769,6 +741,11 @@ async function handleBalance(message, args) {
 
 async function handleWork(message) {
   const userId = message.author.id;
+  const wait = checkCooldown("work", userId);
+  if (wait > 0) {
+    await respond(message, { embeds: [warnEmbed("⏰ Slow Down!").setDescription(`Come back in **${wait} second${wait === 1 ? "" : "s"}**.`)] });
+    return;
+  }
   consumeCooldown("work", userId);
 
   const eco = getEconomy(userId);
@@ -833,7 +810,6 @@ async function handleBuy(message, args) {
     .setTimestamp();
   await respond(message, { embeds: [embed] });
 
-  // Notify staff via mod log
   await logMod(message.guild, infoEmbed("🛒 Shop Purchase")
     .addFields(
       { name: "👤 User",  value: `<@${message.author.id}> (${message.author.tag})` },
@@ -937,7 +913,7 @@ async function refreshSticky(channel) {
 }
 
 // ─────────────────────────────────────────────
-//  ── PARTNERSHIPS (reworked) ──
+//  ── PARTNERSHIPS ──
 // ─────────────────────────────────────────────
 async function handlePartner(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild)) {
@@ -946,49 +922,21 @@ async function handlePartner(message, args) {
 
   const subcommand = (args[0] || "").toLowerCase();
 
-  // ── Partner Help ──
   if (subcommand === "help" || !subcommand) {
     const embed = infoEmbed("🤝 Partnership System — Help")
       .setDescription("Post beautiful partnership announcements with different formats.")
       .addFields(
-        {
-          name: "📋 Basic Format",
-          value:
-            `\`${PREFIX}partner basic <invite> | <server name> | <description>\`\n` +
-            `**Example:** \`${PREFIX}partner basic discord.gg/abc | Chill Zone | A relaxed art server!\``,
-        },
-        {
-          name: "🎨 Detailed Format",
-          value:
-            `\`${PREFIX}partner detailed <invite> | <server name> | <description> | <perks>\`\n` +
-            `**Example:** \`${PREFIX}partner detailed discord.gg/abc | Chill Zone | A relaxed art server! | Free resources, Events, Giveaways\``,
-        },
-        {
-          name: "📣 Announcement Format",
-          value:
-            `\`${PREFIX}partner announce <invite> | <server name> | <description> | <what they offer> | <what we offer>\`\n` +
-            `Best for formal mutual partnerships.`,
-        },
-        {
-          name: "🎁 Promo Format",
-          value:
-            `\`${PREFIX}partner promo <invite> | <server name> | <promo text>\`\n` +
-            `Short-form promotional shoutout.`,
-        },
-        {
-          name: "📜 List Partnerships",
-          value: `\`${PREFIX}partner list\` — View all active partnerships.`,
-        },
-        {
-          name: "🗑️ Remove Partnership",
-          value: `\`${PREFIX}partner remove <id>\` — Remove a partnership by ID.`,
-        },
+        { name: "📋 Basic Format", value: `\`${PREFIX}partner basic <invite> | <server name> | <description>\`` },
+        { name: "🎨 Detailed Format", value: `\`${PREFIX}partner detailed <invite> | <server name> | <description> | <perks>\`` },
+        { name: "📣 Announcement Format", value: `\`${PREFIX}partner announce <invite> | <server name> | <description> | <what they offer> | <what we offer>\`` },
+        { name: "🎁 Promo Format", value: `\`${PREFIX}partner promo <invite> | <server name> | <promo text>\`` },
+        { name: "📜 List", value: `\`${PREFIX}partner list\`` },
+        { name: "🗑️ Remove", value: `\`${PREFIX}partner remove <id>\`` },
       )
       .setFooter({ text: "All formats delete your command message for a clean channel." });
     return respond(message, { embeds: [embed] });
   }
 
-  // ── List partnerships ──
   if (subcommand === "list") {
     const ps = data.partnerships.filter(p => p.guildId === message.guild.id);
     if (!ps.length) return respond(message, { embeds: [brandEmbed("🤝 Partnerships").setDescription("No active partnerships recorded.")] });
@@ -998,7 +946,6 @@ async function handlePartner(message, args) {
     return respond(message, { embeds: [embed] });
   }
 
-  // ── Remove partnership ──
   if (subcommand === "remove") {
     if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("Admin Only")] });
     const id = parseInt(args[1], 10);
@@ -1010,16 +957,21 @@ async function handlePartner(message, args) {
     return respond(message, { embeds: [successEmbed("✅ Partnership Removed").setDescription(`**${removed.name || removed.invite}** has been removed.`)] });
   }
 
-  // ── Partnership formats ──
+  // ── Build partnership embed ──
   const rawContent = args.slice(1).join(" ");
   const parts = rawContent.split("|").map(s => s.trim());
 
-  const INVITE_RE = /^https?:\/\/(discord\.gg|discord\.com\/invite|dsc\.gg)\/\S+$/i;
+  if (!parts[0]) {
+    return respond(message, { embeds: [errorEmbed("Missing Info").setDescription(`Use \`${PREFIX}partner help\` to see all formats.`)] });
+  }
 
-  let invite = parts[0] || "";
-  // Auto-add https:// if missing
-  if (invite && !invite.startsWith("http")) invite = "https://discord.gg/" + invite.replace(/^discord\.gg\//, "");
+  let invite = parts[0];
+  // Normalize invite link
+  if (!invite.startsWith("http")) {
+    invite = "https://discord.gg/" + invite.replace(/^(discord\.gg\/|https?:\/\/discord\.gg\/)/i, "");
+  }
 
+  const INVITE_RE = /^https?:\/\/(discord\.gg|discord\.com\/invite|dsc\.gg)\/.+$/i;
   if (!INVITE_RE.test(invite)) {
     return respond(message, {
       embeds: [errorEmbed("Invalid Invite")
@@ -1039,34 +991,31 @@ async function handlePartner(message, args) {
 
   let embed;
 
-  // ── Basic ──
   if (subcommand === "basic") {
     if (parts.length < 3) return respond(message, { embeds: [warnEmbed("Not Enough Info").setDescription(`\`${PREFIX}partner basic <invite> | <name> | <description>\``)] });
     embed = new EmbedBuilder()
       .setColor(INFO_COLOR)
       .setTitle("🤝 New Partner!")
-      .setDescription(`We're happy to welcome a new partner to the community!`)
+      .setDescription("We're happy to welcome a new partner to the community!")
       .addFields(
-        { name: "🏠 Server",       value: `**${parts[1]}**`,                          inline: true },
-        { name: "🔗 Join Now",     value: `[Click to join!](${invite})`,              inline: true },
-        { name: "📋 About",        value: parts[2] || "No description provided." },
+        { name: "🏠 Server",   value: `**${parts[1]}**`,               inline: true },
+        { name: "🔗 Join Now", value: `[Click to join!](${invite})`,   inline: true },
+        { name: "📋 About",    value: parts[2] || "No description." },
       )
       .setAuthor({ name: BOT_NAME, iconURL: client.user?.displayAvatarURL() })
       .setFooter({ text: `Partnership • ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
       .setTimestamp();
 
-  // ── Detailed ──
   } else if (subcommand === "detailed") {
     if (parts.length < 3) return respond(message, { embeds: [warnEmbed("Not Enough Info").setDescription(`\`${PREFIX}partner detailed <invite> | <name> | <description> | [perks]\``)] });
     embed = new EmbedBuilder()
       .setColor(BRAND_COLOR)
       .setTitle("🌟 Featured Partner")
-      .setDescription(`✨ Check out our awesome partner!`)
+      .setDescription("✨ Check out our awesome partner!")
       .addFields(
-        { name: "🏠 Server",    value: `**${parts[1]}**`,              inline: true },
-        { name: "🔗 Join",      value: `[${parts[1]}](${invite})`,     inline: true },
-        { name: "\u200b",       value: "\u200b",                       inline: true },
-        { name: "📖 About",     value: parts[2] || "—" },
+        { name: "🏠 Server", value: `**${parts[1]}**`,          inline: true },
+        { name: "🔗 Join",   value: `[${parts[1]}](${invite})`, inline: true },
+        { name: "📖 About",  value: parts[2] || "—" },
       );
     if (parts[3]) {
       embed.addFields({ name: "🎁 Perks & Highlights", value: parts[3].split(",").map(s => `• ${s.trim()}`).join("\n") });
@@ -1076,7 +1025,6 @@ async function handlePartner(message, args) {
       .setFooter({ text: `Partnership • ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
       .setTimestamp();
 
-  // ── Announce (formal mutual) ──
   } else if (subcommand === "announce") {
     if (parts.length < 5) return respond(message, { embeds: [warnEmbed("Not Enough Info").setDescription(`\`${PREFIX}partner announce <invite> | <name> | <about> | <what they offer> | <what we offer>\``)] });
     embed = new EmbedBuilder()
@@ -1084,18 +1032,16 @@ async function handlePartner(message, args) {
       .setTitle("🤝 Official Partnership Announcement")
       .setDescription(`We're excited to officially partner with **${parts[1]}**!`)
       .addFields(
-        { name: "🏠 Server",               value: `**${parts[1]}**`,    inline: true },
-        { name: "🔗 Join",                 value: `[Click here](${invite})`, inline: true },
-        { name: "\u200b",                  value: "\u200b",             inline: true },
-        { name: "📋 About Them",           value: parts[2] || "—" },
-        { name: "🎁 What They Offer Us",   value: parts[3] || "—", inline: true },
-        { name: "💜 What We Offer Them",   value: parts[4] || "—", inline: true },
+        { name: "🏠 Server",             value: `**${parts[1]}**`,         inline: true },
+        { name: "🔗 Join",               value: `[Click here](${invite})`, inline: true },
+        { name: "📋 About Them",         value: parts[2] || "—" },
+        { name: "🎁 What They Offer Us", value: parts[3] || "—", inline: true },
+        { name: "💜 What We Offer Them", value: parts[4] || "—", inline: true },
       )
       .setAuthor({ name: BOT_NAME, iconURL: client.user?.displayAvatarURL() })
       .setFooter({ text: `Partnership Announcement • ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
       .setTimestamp();
 
-  // ── Promo (short shoutout) ──
   } else if (subcommand === "promo") {
     if (parts.length < 3) return respond(message, { embeds: [warnEmbed("Not Enough Info").setDescription(`\`${PREFIX}partner promo <invite> | <name> | <promo text>\``)] });
     embed = new EmbedBuilder()
@@ -1108,28 +1054,27 @@ async function handlePartner(message, args) {
       .setTimestamp();
 
   } else {
-    return respond(message, { embeds: [warnEmbed("Unknown Format").setDescription(`Unknown format \`${subcommand}\`. Use \`${PREFIX}partner help\` for available formats.`)] });
+    return respond(message, { embeds: [warnEmbed("Unknown Format").setDescription(`Unknown format \`${subcommand}\`. Use \`${PREFIX}partner help\`.`)] });
   }
 
   data.partnerships.push(partnershipRecord);
   saveData();
 
-  await message.delete().catch(() => {});
+  try { await message.delete(); } catch {}
   await message.channel.send({
-    content: "||@here|| — New partnership announcement!",
+    content: "@here — New partnership announcement!",
     embeds: [embed],
     allowedMentions: { parse: ["here"] },
   });
 }
 
 // ─────────────────────────────────────────────
-//  ── ANNOUNCE (reworked) ──
+//  ── ANNOUNCE ──
 // ─────────────────────────────────────────────
 async function handleAnnounce(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild))
     return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** or **Administrator** to make announcements.")] });
 
-  // Allow targeting a specific channel: s!announce #channel message
   let targetChannel = message.channel;
   let textArgs = args;
 
@@ -1148,12 +1093,7 @@ async function handleAnnounce(message, args) {
   if (!text) {
     return respond(message, {
       embeds: [warnEmbed("Usage")
-        .setDescription(
-          `\`${PREFIX}announce [#channel] <message>\`\n\n` +
-          "**Examples:**\n" +
-          `\`${PREFIX}announce The bot just got a huge update!\`\n` +
-          `\`${PREFIX}announce #announcements New commissions are open!`
-        )],
+        .setDescription(`\`${PREFIX}announce [#channel] <message>\``)],
     });
   }
 
@@ -1165,9 +1105,9 @@ async function handleAnnounce(message, args) {
     .setFooter({ text: `Posted by ${message.author.tag}`, iconURL: message.author.displayAvatarURL() })
     .setTimestamp();
 
-  await message.delete().catch(() => {});
+  try { await message.delete(); } catch {}
   await targetChannel.send({
-    content: "||@everyone||",
+    content: "@everyone",
     embeds: [embed],
     allowedMentions: { parse: ["everyone"] },
   });
@@ -1175,7 +1115,6 @@ async function handleAnnounce(message, args) {
 
 // ─────────────────────────────────────────────
 //  ── DISCOUNT SYSTEM ──
-//  Users who have placed an order before get 5% off their next order
 // ─────────────────────────────────────────────
 function hasOrdered(userId) {
   return data.orders.some(o => o.userId === userId);
@@ -1184,13 +1123,12 @@ function hasOrdered(userId) {
 async function handleDiscount(message) {
   const userId = message.author.id;
   const ordered = hasOrdered(userId);
-  const eco = getEconomy(userId);
 
   if (!ordered) {
     const embed = infoEmbed("🎟️ Loyalty Discount")
       .setDescription(
         "You don't have any previous orders yet.\n\n" +
-        `Place your first order by opening a ticket with \`${PREFIX}ticket\`!\n` +
+        `Place your first order by opening a ticket!\n` +
         "**After your first order, you'll automatically get a 5% discount on future orders.** 💗"
       )
       .setTimestamp();
@@ -1201,7 +1139,7 @@ async function handleDiscount(message) {
     .setDescription(
       "As a returning customer, you're eligible for a **5% discount** on your next commission!\n\n" +
       "**How to redeem:**\n" +
-      `1. Open a ticket with \`${PREFIX}ticket\`\n` +
+      "1. Open a ticket\n" +
       "2. Mention your discount when discussing pricing\n" +
       "3. Staff will apply it to your quote automatically.\n\n" +
       "Thank you for being a valued customer! 💗"
@@ -1256,9 +1194,9 @@ async function handleRPS(message, args) {
 
   const embed = brandEmbed("🎮 Rock Paper Scissors")
     .addFields(
-      { name: "Your Choice",  value: `${emojis[userChoice]} ${userChoice}`, inline: true },
-      { name: "My Choice",    value: `${emojis[botChoice]} ${botChoice}`,   inline: true },
-      { name: "Result",       value: outcome },
+      { name: "Your Choice", value: `${emojis[userChoice]} ${userChoice}`, inline: true },
+      { name: "My Choice",   value: `${emojis[botChoice]} ${botChoice}`,   inline: true },
+      { name: "Result",      value: outcome },
     )
     .setFooter({ text: `vs ${message.author.tag}` });
   await respond(message, { embeds: [embed] });
@@ -1273,10 +1211,7 @@ async function handlePoll(message, args) {
   if (parts.length < 2) {
     return respond(message, {
       embeds: [warnEmbed("Usage")
-        .setDescription(
-          `\`${PREFIX}poll <question> | <option 1> | <option 2> | ...\`\n\n` +
-          `**Example:** \`${PREFIX}poll Favourite language? | Lua | Python | JavaScript\``
-        )],
+        .setDescription(`\`${PREFIX}poll <question> | <option 1> | <option 2> | ...\``)],
     });
   }
 
@@ -1292,7 +1227,7 @@ async function handlePoll(message, args) {
     .setFooter({ text: "React below to vote!" })
     .setTimestamp();
 
-  await message.delete().catch(() => {});
+  try { await message.delete(); } catch {}
   const sent = await message.channel.send({ embeds: [embed] });
   for (let i = 0; i < options.length; i++) await sent.react(numbers[i]).catch(() => {});
 }
@@ -1318,7 +1253,6 @@ async function handleTrivia(message) {
     .setTimestamp();
   await respond(message, { embeds: [embed] });
 
-  // Auto-expire after 60s
   setTimeout(async () => {
     if (data.triviaActive[channelId]) {
       delete data.triviaActive[channelId];
@@ -1328,25 +1262,29 @@ async function handleTrivia(message) {
   }, 60_000);
 }
 
+// ─────────────────────────────────────────────
+//  ── GIVEAWAY (fixed) ──
+// ─────────────────────────────────────────────
 async function handleGiveaway(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageGuild))
     return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server** to start giveaways.")] });
 
   const raw   = args.join(" ");
-  const parts = raw.split("|").map(s => s.trim());
-  if (parts.length < 2) {
+  const pipeIdx = raw.indexOf("|");
+  if (pipeIdx < 0) {
     return respond(message, {
       embeds: [warnEmbed("Usage")
-        .setDescription(
-          `\`${PREFIX}giveaway <duration> | <prize>\`\n\n` +
-          `**Example:** \`${PREFIX}giveaway 10m | 500 Robux Commission Voucher\``
-        )],
+        .setDescription(`\`${PREFIX}giveaway <duration> | <prize>\`\n\n**Example:** \`${PREFIX}giveaway 10m | 500 Robux Commission Voucher\``)],
     });
   }
 
-  const ms = parseDuration(parts[0]);
+  const durationPart = raw.slice(0, pipeIdx).trim();
+  const prize = raw.slice(pipeIdx + 1).trim();
+
+  const ms = parseDuration(durationPart);
   if (!ms) return respond(message, { embeds: [errorEmbed("Invalid Duration").setDescription("Use formats like `10m`, `1h`, `1d`.")] });
-  const prize = parts[1];
+  if (!prize) return respond(message, { embeds: [errorEmbed("Missing Prize").setDescription("Please specify a prize after the `|`.")] });
+
   const endAt = Date.now() + ms;
 
   const embed = new EmbedBuilder()
@@ -1354,19 +1292,22 @@ async function handleGiveaway(message, args) {
     .setTitle("🎉 GIVEAWAY!")
     .setDescription(`React with 🎉 to enter!\n\n**Prize:** ${prize}`)
     .addFields(
-      { name: "⏰ Ends",   value: `<t:${Math.floor(endAt / 1000)}:R>`, inline: true },
-      { name: "🎁 Prize",  value: prize,                               inline: true },
-      { name: "🏠 Host",   value: message.author.tag,                  inline: true },
+      { name: "⏰ Ends",  value: `<t:${Math.floor(endAt / 1000)}:R>`, inline: true },
+      { name: "🎁 Prize", value: prize,                               inline: true },
+      { name: "🏠 Host",  value: `<@${message.author.id}>`,           inline: true },
     )
     .setFooter({ text: "React with 🎉 to enter!" })
     .setTimestamp();
 
-  const sent = await message.channel.send({ content: "||@here||", embeds: [embed], allowedMentions: { parse: ["here"] } });
+  const sent = await message.channel.send({ content: "@here", embeds: [embed], allowedMentions: { parse: ["here"] } });
   await sent.react("🎉").catch(() => {});
 
   data.giveaways[sent.id] = {
-    prize, endAt, entries: [], channelId: message.channel.id,
-    guildId: message.guild.id, hostId: message.author.id,
+    prize, endAt,
+    channelId: message.channel.id,
+    guildId: message.guild.id,
+    hostId: message.author.id,
+    ended: false,
   };
   saveData();
 }
@@ -1379,19 +1320,27 @@ async function checkGiveaways() {
     saveData();
 
     try {
-      const guild   = client.guilds.cache.get(giveaway.guildId);
+      const guild = client.guilds.cache.get(giveaway.guildId);
       if (!guild) continue;
       const channel = await guild.channels.fetch(giveaway.channelId).catch(() => null);
       if (!channel) continue;
-      const msg     = await channel.messages.fetch(msgId).catch(() => null);
+
+      // Fetch message with force to ensure reaction data is fresh
+      const msg = await channel.messages.fetch({ message: msgId, force: true }).catch(() => null);
       if (!msg) continue;
 
-      // Collect reactor IDs
       const reaction = msg.reactions.cache.get("🎉");
       let entrants = [];
       if (reaction) {
-        const users = await reaction.users.fetch();
-        entrants = users.filter(u => !u.bot).map(u => u.id);
+        // Fetch all users who reacted (handles pagination)
+        let lastId;
+        while (true) {
+          const batch = await reaction.users.fetch({ limit: 100, after: lastId }).catch(() => null);
+          if (!batch || batch.size === 0) break;
+          entrants.push(...batch.filter(u => !u.bot).map(u => u.id));
+          if (batch.size < 100) break;
+          lastId = batch.last().id;
+        }
       }
 
       if (!entrants.length) {
@@ -1404,10 +1353,12 @@ async function checkGiveaways() {
             .setDescription(`<@${winnerId}> won **${giveaway.prize}**!\n\nContact staff to claim your prize.`)
             .addFields({ name: "📊 Entries", value: `${entrants.length}` })
             .setTimestamp()],
+          allowedMentions: { parse: ["users"] },
         });
       }
     } catch (err) {
       console.error("Giveaway end failed:", err);
+      await sendErrorLog(err, `Giveaway end for message ${msgId}`);
     }
   }
 }
@@ -1455,9 +1406,9 @@ async function handleColor(message, args) {
     .setColor(parseInt(hex, 16))
     .setTitle(`🎨 Color #${hex.toUpperCase()}`)
     .addFields(
-      { name: "HEX",  value: `#${hex.toUpperCase()}`,   inline: true },
-      { name: "RGB",  value: `${r}, ${g}, ${b}`,         inline: true },
-      { name: "INT",  value: `${parseInt(hex, 16)}`,     inline: true },
+      { name: "HEX", value: `#${hex.toUpperCase()}`, inline: true },
+      { name: "RGB", value: `${r}, ${g}, ${b}`,      inline: true },
+      { name: "INT", value: `${parseInt(hex, 16)}`,  inline: true },
     )
     .setImage(`https://singlecolorimage.com/get/${hex}/200x80`)
     .setTimestamp();
@@ -1477,7 +1428,7 @@ async function handleEmbed(message, args) {
   const desc  = raw.slice(pipe + 1).trim();
   if (!title || !desc) return respond(message, { embeds: [errorEmbed("Missing Fields")] });
 
-  await message.delete().catch(() => {});
+  try { await message.delete(); } catch {}
   await message.channel.send({
     embeds: [new EmbedBuilder().setColor(BRAND_COLOR).setTitle(title).setDescription(desc).setTimestamp()],
   });
@@ -1487,7 +1438,6 @@ async function handleCalc(message, args) {
   const expr = args.join(" ").trim().replace(/[^0-9+\-*/.() %^]/g, "");
   if (!expr) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}calc <expression>\``)] });
   try {
-    // Safe eval replacement
     const result = Function('"use strict"; return (' + expr + ')')();
     if (typeof result !== "number" || !Number.isFinite(result))
       throw new Error("Not a finite number");
@@ -1545,7 +1495,9 @@ async function handleLock(message) {
   await message.channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
   const embed = errorEmbed("🔒 Channel Locked").setDescription("This channel has been locked. Only staff can send messages.").setTimestamp();
   await respond(message, { embeds: [embed] });
-  await logMod(message.guild, embed.addFields({ name: "💬 Channel", value: `<#${message.channel.id}>`, inline: true }, { name: "🛡️ By", value: message.author.tag, inline: true }));
+  await logMod(message.guild, new EmbedBuilder().setColor(ERROR_COLOR).setTitle("🔒 Channel Locked")
+    .addFields({ name: "💬 Channel", value: `<#${message.channel.id}>`, inline: true }, { name: "🛡️ By", value: message.author.tag, inline: true })
+    .setTimestamp());
 }
 
 async function handleUnlock(message) {
@@ -1572,7 +1524,7 @@ async function handleNick(message, args) {
   await member.setNickname(nick, `By ${message.author.tag}`);
   const embed = successEmbed("✏️ Nickname Updated")
     .addFields(
-      { name: "👤 User",     value: `<@${userId}>`, inline: true },
+      { name: "👤 User",     value: `<@${userId}>`,      inline: true },
       { name: "✏️ Nickname", value: nick || "*(reset)*", inline: true },
     )
     .setTimestamp();
@@ -1580,7 +1532,7 @@ async function handleNick(message, args) {
 }
 
 // ─────────────────────────────────────────────
-//  ── ORIGINAL COMMANDS (preserved) ──
+//  ── ORIGINAL COMMANDS ──
 // ─────────────────────────────────────────────
 async function handleHelp(message) {
   const COMMAND_LIST = [
@@ -1588,23 +1540,23 @@ async function handleHelp(message) {
       category: "📌 General",
       items: [
         { name: "s!help",        desc: "Show this command list." },
-        { name: "s!info",        desc: "Bot info — name, version, owner." },
-        { name: "s!status",      desc: "Check if the bot and services are online." },
+        { name: "s!info",        desc: "Bot info." },
+        { name: "s!status",      desc: "Check if the bot is online." },
         { name: "s!ping",        desc: "Replies with pong 🧸." },
         { name: "s!rules",       desc: "Posts the server rules." },
-        { name: "s!prices",      desc: "Payment methods and pricing notes." },
+        { name: "s!prices",      desc: "Payment methods and pricing." },
         { name: "s!uptime",      desc: "How long the bot has been running." },
-        { name: "s!discount",    desc: "Check if you qualify for a 5% returning customer discount." },
+        { name: "s!discount",    desc: "Check if you qualify for a 5% discount." },
       ],
     },
     {
       category: "💼 Commissions",
       items: [
-        { name: "s!services",         desc: "Everything Snuggles Scripting offers." },
+        { name: "s!services",         desc: "Everything we offer." },
         { name: "s!queue",            desc: "Active and pending commissions." },
-        { name: "s!statusorder <id>", desc: "Check the status of a specific order." },
+        { name: "s!statusorder <id>", desc: "Check a specific order status." },
         { name: "s!ticket",           desc: "Open a private support ticket." },
-        { name: "s!pay",              desc: "Show CashApp & PayPal payment details." },
+        { name: "s!pay",              desc: "Show payment details." },
       ],
     },
     {
@@ -1619,36 +1571,36 @@ async function handleHelp(message) {
         { name: "s!script <type>", desc: "Example scripts: ui, admin, movement, remote, datastore." },
         { name: "s!snippet",       desc: "Random useful Lua/Roblox code snippet." },
         { name: "s!docs",          desc: "Scripting documentation and resources." },
-        { name: "s!debug",         desc: "Template for reporting errors to staff." },
+        { name: "s!debug",         desc: "Template for reporting errors." },
       ],
     },
     {
       category: "📊 Leveling & Economy",
       items: [
-        { name: "s!level [user]",    desc: "Your current level and XP progress." },
-        { name: "s!rank [user]",     desc: "Detailed stats — level, coins, rank." },
+        { name: "s!level [user]",    desc: "Your current level and XP." },
+        { name: "s!rank [user]",     desc: "Detailed stats." },
         { name: "s!leaderboard",     desc: "Top users by level." },
         { name: "s!balance [user]",  desc: "Check your coin balance." },
         { name: "s!work",            desc: "Earn coins (1 hour cooldown)." },
-        { name: "s!daily",           desc: "Claim your daily reward (24h cooldown)." },
+        { name: "s!daily",           desc: "Claim your daily reward." },
         { name: "s!shop",            desc: "View the coin shop." },
-        { name: "s!buy <item_id>",   desc: "Purchase an item from the shop." },
+        { name: "s!buy <item_id>",   desc: "Purchase an item." },
       ],
     },
     {
       category: "📨 Invites",
       items: [
-        { name: "s!invites [user]",    desc: "Check how many users you've invited." },
-        { name: "s!inviteleaderboard", desc: "Top inviters in the server." },
+        { name: "s!invites [user]",    desc: "Check your invites." },
+        { name: "s!inviteleaderboard", desc: "Top inviters." },
       ],
     },
     {
       category: "ℹ️ Info",
       items: [
         { name: "s!userinfo [user]", desc: "Show info about a user." },
-        { name: "s!serverinfo",      desc: "Show info about this server." },
-        { name: "s!avatar [user]",   desc: "Show a user's full avatar." },
-        { name: "s!banner [user]",   desc: "Show a user's profile banner." },
+        { name: "s!serverinfo",      desc: "Show server info." },
+        { name: "s!avatar [user]",   desc: "Show a user's avatar." },
+        { name: "s!banner [user]",   desc: "Show a user's banner." },
         { name: "s!servericon",      desc: "Show the server icon." },
         { name: "s!stats",           desc: "Bot activity stats." },
         { name: "s!color <hex>",     desc: "Preview a hex color." },
@@ -1665,55 +1617,55 @@ async function handleHelp(message) {
     {
       category: "🎉 Fun & Games",
       items: [
-        { name: "s!quote",               desc: "Random motivational quote." },
-        { name: "s!tip",                 desc: "Random scripting tip." },
-        { name: "s!meme",                desc: "Random wholesome meme." },
-        { name: "s!8ball <question>",    desc: "Magic 8-ball answers." },
-        { name: "s!rate <thing>",        desc: "I rate it 0–10." },
-        { name: "s!coinflip",            desc: "Flip a coin." },
-        { name: "s!roll [max]",          desc: "Roll a dice (default 1-6)." },
-        { name: "s!rps <rock|paper|scissors>", desc: "Rock, paper, scissors." },
-        { name: "s!trivia",              desc: "Answer a Lua/Roblox trivia question for coins." },
+        { name: "s!quote",                       desc: "Random motivational quote." },
+        { name: "s!tip",                         desc: "Random scripting tip." },
+        { name: "s!meme",                        desc: "Random wholesome meme." },
+        { name: "s!8ball <question>",            desc: "Magic 8-ball answers." },
+        { name: "s!rate <thing>",                desc: "I rate it 0–10." },
+        { name: "s!coinflip",                    desc: "Flip a coin." },
+        { name: "s!roll [max]",                  desc: "Roll a dice." },
+        { name: "s!rps <rock|paper|scissors>",   desc: "Rock, paper, scissors." },
+        { name: "s!trivia",                      desc: "Answer a Lua/Roblox trivia question." },
         { name: "s!remindme <time> | <message>", desc: "Set a personal reminder." },
       ],
     },
     {
       category: "🔨 Moderation (Staff only)",
       items: [
-        { name: "s!ban <user> <reason>",           desc: "Ban a user." },
-        { name: "s!kick <user> [reason]",          desc: "Kick a user." },
-        { name: "s!mute <user> <time> [reason]",   desc: "Timeout a user (e.g. 10m, 1h)." },
-        { name: "s!warn <user> <reason>",          desc: "Issue a formal warning." },
-        { name: "s!warns <user>",                  desc: "View warning history." },
-        { name: "s!unwarn <id>",                   desc: "Remove a warning by ID." },
-        { name: "s!purge <count>",                 desc: "Bulk delete 1–100 messages." },
-        { name: "s!lock",                          desc: "Lock the current channel." },
-        { name: "s!unlock",                        desc: "Unlock the current channel." },
-        { name: "s!slowmode <seconds>",            desc: "Set channel slowmode." },
-        { name: "s!nick @user [nickname]",         desc: "Set or reset a user's nickname." },
+        { name: "s!ban <user> <reason>",         desc: "Ban a user." },
+        { name: "s!kick <user> [reason]",        desc: "Kick a user." },
+        { name: "s!mute <user> <time> [reason]", desc: "Timeout a user." },
+        { name: "s!warn <user> <reason>",        desc: "Issue a warning." },
+        { name: "s!warns <user>",                desc: "View warning history." },
+        { name: "s!unwarn <id>",                 desc: "Remove a warning." },
+        { name: "s!purge <count>",               desc: "Bulk delete messages." },
+        { name: "s!lock",                        desc: "Lock the current channel." },
+        { name: "s!unlock",                      desc: "Unlock the current channel." },
+        { name: "s!slowmode <seconds>",          desc: "Set channel slowmode." },
+        { name: "s!nick @user [nickname]",       desc: "Set or reset a nickname." },
       ],
     },
     {
       category: "⚙️ Admin",
       items: [
-        { name: "s!announce [#ch] <message>",     desc: "Send a styled announcement." },
-        { name: "s!partner <format> ...",         desc: "Post a partnership (use s!partner help)." },
-        { name: "s!poll <q> | <a1> | <a2> ...",  desc: "Create a reaction poll." },
-        { name: "s!giveaway <time> | <prize>",   desc: "Start a giveaway." },
-        { name: "s!embed <title> | <body>",       desc: "Send a custom embed." },
-        { name: "s!addorder @user <details>",    desc: "Add a commission to the queue." },
-        { name: "s!complete <id>",               desc: "Mark a commission as completed." },
-        { name: "s!blacklist @user",             desc: "Toggle a user's bot access." },
-        { name: "s!setlog [#channel]",           desc: "Set the mod log channel." },
-        { name: "s!setreviews [#channel]",       desc: "Set the reviews channel." },
-        { name: "s!settranscripts [#channel]",   desc: "Set the ticket transcripts channel." },
-        { name: "s!ticketpanel",                 desc: "Post the ticket panel." },
-        { name: "s!close",                       desc: "Close the current ticket." },
-        { name: "s!addnote <text>",              desc: "Add a staff note in a ticket." },
-        { name: "s!addwork <url> [title]",       desc: "Add a portfolio entry." },
-        { name: "s!removework <id>",             desc: "Remove a portfolio entry." },
-        { name: "s!givecoins @user <amount>",    desc: "Give coins to a user (admin)." },
-        { name: "s!say <message>",               desc: "Send a message as the bot." },
+        { name: "s!announce [#ch] <message>",    desc: "Send a styled announcement." },
+        { name: "s!partner <format> ...",        desc: "Post a partnership." },
+        { name: "s!poll <q> | <a1> | <a2> ...", desc: "Create a reaction poll." },
+        { name: "s!giveaway <time> | <prize>",  desc: "Start a giveaway." },
+        { name: "s!embed <title> | <body>",      desc: "Send a custom embed." },
+        { name: "s!addorder @user <details>",   desc: "Add a commission." },
+        { name: "s!complete <id>",              desc: "Mark a commission as completed." },
+        { name: "s!blacklist @user",            desc: "Toggle a user's bot access." },
+        { name: "s!setlog [#channel]",          desc: "Set the mod log channel." },
+        { name: "s!setreviews [#channel]",      desc: "Set the reviews channel." },
+        { name: "s!settranscripts [#channel]",  desc: "Set the transcripts channel." },
+        { name: "s!ticketpanel",                desc: "Post the ticket panel." },
+        { name: "s!close",                      desc: "Close the current ticket." },
+        { name: "s!addnote <text>",             desc: "Add a staff note in a ticket." },
+        { name: "s!addwork <url> [title]",      desc: "Add a portfolio entry." },
+        { name: "s!removework <id>",            desc: "Remove a portfolio entry." },
+        { name: "s!givecoins @user <amount>",   desc: "Give coins to a user." },
+        { name: "s!say <message>",              desc: "Send a message as the bot." },
       ],
     },
   ];
@@ -1735,13 +1687,13 @@ async function handleInfo(message) {
   const embed = brandEmbed(`🧸 ${BOT_NAME}`)
     .setDescription("A feature-rich scripting services bot for the Snuggles Scripting community.")
     .addFields(
-      { name: "🤖 Bot Tag",    value: client.user?.tag || "Unknown",          inline: true },
-      { name: "📦 Version",    value: `v${BOT_VERSION}`,                      inline: true },
-      { name: "👑 Owner",      value: BOT_OWNER,                              inline: true },
-      { name: "📚 Library",    value: "discord.js v14",                       inline: true },
-      { name: "⚙️ Runtime",    value: `Node.js ${process.version}`,           inline: true },
-      { name: "🌐 Servers",    value: `${client.guilds.cache.size}`,          inline: true },
-      { name: "⏱️ Uptime",     value: `${h}h ${m}m ${s}s`,                   inline: true },
+      { name: "🤖 Bot Tag",  value: client.user?.tag || "Unknown", inline: true },
+      { name: "📦 Version",  value: `v${BOT_VERSION}`,             inline: true },
+      { name: "👑 Owner",    value: BOT_OWNER,                     inline: true },
+      { name: "📚 Library",  value: "discord.js v14",              inline: true },
+      { name: "⚙️ Runtime",  value: `Node.js ${process.version}`,  inline: true },
+      { name: "🌐 Servers",  value: `${client.guilds.cache.size}`, inline: true },
+      { name: "⏱️ Uptime",   value: `${h}h ${m}m ${s}s`,          inline: true },
     )
     .setFooter({ text: "Built with discord.js • Snuggles Scripting" })
     .setTimestamp();
@@ -1755,9 +1707,9 @@ async function handleStatus(message) {
 
   const embed = successEmbed("🟢 All Systems Operational")
     .addFields(
-      { name: "🤖 Bot",               value: "🟢 Online",                                                 inline: true },
-      { name: "📡 Gateway Ping",      value: `${wsPing} ms`,                                              inline: true },
-      { name: "🌐 API Latency",       value: `${apiLatency} ms`,                                          inline: true },
+      { name: "🤖 Bot",               value: "🟢 Online",                                                  inline: true },
+      { name: "📡 Gateway Ping",      value: `${wsPing} ms`,                                               inline: true },
+      { name: "🌐 API Latency",       value: `${apiLatency} ms`,                                           inline: true },
       { name: "📋 Commission System", value: `🟢 ${data.orders.length} order(s) tracked` },
       { name: "🎟️ Ticket System",    value: "🟢 Operational" },
       { name: "📊 Leveling",          value: `🟢 ${Object.keys(data.leveling).length} users tracked` },
@@ -1786,7 +1738,7 @@ async function handlePrices(message) {
     .setTitle(PAYMENT_INFO.title).setDescription(PAYMENT_INFO.description).setColor(SUCCESS_COLOR)
     .addFields(...PAYMENT_INFO.methods.map(m => ({ name: m.name, value: m.value })))
     .addFields({ name: "⚠️ Refund Policy", value: PAYMENT_INFO.note })
-    .setFooter({ text: `Open a ticket with ${PREFIX}ticket to start a purchase.` })
+    .setFooter({ text: `Open a ticket to start a purchase.` })
     .setTimestamp();
   await respond(message, { embeds: [embed] });
 }
@@ -1806,7 +1758,7 @@ async function handleQueue(message) {
     .setFooter({ text: `${active.length} active order(s) • ${BOT_NAME}` })
     .setTimestamp();
   if (!active.length) {
-    embed.setDescription(`The queue is currently empty. Use \`${PREFIX}ticket\` to request a commission.`);
+    embed.setDescription(`The queue is currently empty. Open a ticket to request a commission.`);
   } else {
     embed.setDescription(active.map(o => `**#${o.id}** — ${statusBadge(o.status)}\n<@${o.userId}> — ${o.details}`).join("\n\n"));
   }
@@ -1897,16 +1849,15 @@ async function handleServerInfo(message) {
   const embed = brandEmbed(`🏠 ${guild.name}`)
     .setThumbnail(guild.iconURL({ size: 256 }) || null)
     .addFields(
-      { name: "🆔 ID",          value: guild.id,                                                              inline: true },
-      { name: "👑 Owner",       value: owner ? owner.user.tag : "—",                                          inline: true },
-      { name: "📅 Created",     value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>` },
-      { name: "👥 Members",     value: `${guild.memberCount}`,                                                inline: true },
-      { name: "🎭 Roles",       value: `${guild.roles.cache.size}`,                                           inline: true },
-      { name: "😄 Emojis",      value: `${guild.emojis.cache.size}`,                                          inline: true },
-      { name: "💬 Text",        value: `${channels.filter(c => c.type === ChannelType.GuildText).size}`,      inline: true },
-      { name: "🔊 Voice",       value: `${channels.filter(c => c.type === ChannelType.GuildVoice).size}`,     inline: true },
-      { name: "✨ Boost Tier",  value: `Tier ${guild.premiumTier} (${guild.premiumSubscriptionCount || 0} boosts)` },
-      { name: "🤝 Partnerships",value: `${data.partnerships.filter(p => p.guildId === guild.id).length}`,    inline: true },
+      { name: "🆔 ID",         value: guild.id,                                                              inline: true },
+      { name: "👑 Owner",      value: owner ? owner.user.tag : "—",                                          inline: true },
+      { name: "📅 Created",    value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>` },
+      { name: "👥 Members",    value: `${guild.memberCount}`,                                                inline: true },
+      { name: "🎭 Roles",      value: `${guild.roles.cache.size}`,                                           inline: true },
+      { name: "😄 Emojis",     value: `${guild.emojis.cache.size}`,                                          inline: true },
+      { name: "💬 Text",       value: `${channels.filter(c => c.type === ChannelType.GuildText).size}`,      inline: true },
+      { name: "🔊 Voice",      value: `${channels.filter(c => c.type === ChannelType.GuildVoice).size}`,     inline: true },
+      { name: "✨ Boost Tier", value: `Tier ${guild.premiumTier} (${guild.premiumSubscriptionCount || 0} boosts)` },
     )
     .setTimestamp();
   await respond(message, { embeds: [embed] });
@@ -2082,16 +2033,53 @@ async function handleDaily(message) {
   await respond(message, { embeds: [successEmbed("🎁 Daily Reward Claimed!").setDescription(`${reward.text}\n\n**+${reward.coins} 🪙 coins** added to your balance!`).setThumbnail(message.author.displayAvatarURL()).setFooter({ text: "Come back tomorrow for another reward!" }).setTimestamp()] });
 }
 
-// Tickets
-async function handleTicket(message) { await openTicketForUser(message.channel, message.member, null); }
+// ─────────────────────────────────────────────
+//  ── TICKET SYSTEM (reworked) ──
+// ─────────────────────────────────────────────
+
+async function handleTicket(message) {
+  // Trigger a type selection via ephemeral reply isn't possible with prefix commands
+  // so we show a prompt explaining to use the panel
+  return respond(message, {
+    embeds: [brandEmbed("🎫 Open a Ticket")
+      .setDescription("Please use the **ticket panel** to open a ticket — choose from:\n\n📦 **Order Something** — Commission a script\n🤝 **Partnership** — Partner with our server\n❓ **General Inquiry** — Ask a question or get help\n\nIf there's no panel visible, ask a staff member to post one with `s!ticketpanel`.")
+      .setFooter({ text: `${BOT_NAME} Ticket System` })],
+  });
+}
 
 async function handleTicketPanel(message) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageChannels))
     return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Channels**.")] });
-  const embed = brandEmbed(`🧸 ${BOT_NAME} — Open a Ticket`)
-    .setDescription("Need a commission, scripting help, or want to talk to staff?\n\nClick **Open Ticket** below.")
-    .setFooter({ text: `${BOT_NAME} • Ticket System` });
-  const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("ticket_open").setLabel("Open Ticket").setStyle(ButtonStyle.Primary).setEmoji("🧸"));
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle(`🧸 ${BOT_NAME} — Open a Ticket`)
+    .setDescription(
+      "Need help or want to work with us? Click the button below that best describes your need!\n\n" +
+      "📦 **Order Something** — Commission a script or system\n" +
+      "🤝 **Partnership** — Interested in partnering with us?\n" +
+      "❓ **General Inquiry** — Questions, support, or anything else"
+    )
+    .setFooter({ text: `${BOT_NAME} • Ticket System v2` });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticket_order")
+      .setLabel("Order Something")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📦"),
+    new ButtonBuilder()
+      .setCustomId("ticket_partnership")
+      .setLabel("Partnership")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("🤝"),
+    new ButtonBuilder()
+      .setCustomId("ticket_inquiry")
+      .setLabel("General Inquiry")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("❓"),
+  );
+
   await respond(message, { embeds: [embed], components: [row] });
 }
 
@@ -2099,19 +2087,29 @@ async function buildTranscript(channel) {
   const all = [];
   let lastId;
   for (let i = 0; i < 10; i++) {
-    const batch = await channel.messages.fetch({ limit: 100, before: lastId });
+    const opts = { limit: 100 };
+    if (lastId) opts.before = lastId;
+    const batch = await channel.messages.fetch(opts);
     if (!batch.size) break;
     all.push(...batch.values());
     lastId = batch.last().id;
     if (batch.size < 100) break;
   }
   all.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  const lines = [`Transcript of #${channel.name}`, `Channel ID: ${channel.id}`, `Generated: ${new Date().toISOString()}`, `Message count: ${all.length}`, "", "─".repeat(40), ""];
+  const lines = [
+    `Transcript of #${channel.name}`,
+    `Channel ID: ${channel.id}`,
+    `Generated: ${new Date().toISOString()}`,
+    `Message count: ${all.length}`,
+    "",
+    "─".repeat(40),
+    "",
+  ];
   for (const m of all) {
     const ts = new Date(m.createdTimestamp).toISOString();
     const author = `${m.author.tag} (${m.author.id})`;
     let body = m.content || "";
-    if (m.embeds?.length)    for (const e of m.embeds)              body += `\n  [Embed] ${e.title || ""}${e.description ? " — " + e.description.replace(/\n/g, " ") : ""}`;
+    if (m.embeds?.length)    for (const e of m.embeds)               body += `\n  [Embed] ${e.title || ""}${e.description ? " — " + e.description.replace(/\n/g, " ") : ""}`;
     if (m.attachments?.size) for (const a of m.attachments.values()) body += `\n  [Attachment] ${a.url}`;
     lines.push(`[${ts}] ${author}: ${body || "(no content)"}\n`);
   }
@@ -2122,28 +2120,101 @@ async function handleClose(message) {
   if (!message.channel.name?.startsWith("ticket-"))
     return respond(message, { embeds: [errorEmbed("Wrong Channel").setDescription("This command only works inside a ticket channel.")] });
 
-  await message.channel.send({ embeds: [infoEmbed("📝 Generating Transcript…").setDescription("Please wait…")] });
-  let transcript = "";
-  try { transcript = await buildTranscript(message.channel); }
-  catch (err) { transcript = `Transcript failed: ${err.message}\nClosed by ${message.author.tag} at ${new Date().toISOString()}`; }
+  // Show a modal asking for close reason
+  const modal = new ModalBuilder()
+    .setCustomId("ticket_close_reason_cmd")
+    .setTitle("Close Ticket");
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("close_reason")
+        .setLabel("Reason for closing this ticket")
+        .setPlaceholder("e.g. Issue resolved, commission completed, spam, etc.")
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(500)
+        .setRequired(true)
+    )
+  );
 
-  const settings = getGuildSettings(message.guild.id);
-  const targetChannelId = settings.transcriptsChannelId || data.modLogChannels[message.guild.id];
+  // We can only show a modal in response to an interaction, not a message command.
+  // So for the s!close command, we collect a reason differently.
+  const args = message.content.slice(PREFIX.length).trim().split(/\s+/).slice(1);
+  const reason = args.join(" ").trim();
+  if (!reason) {
+    return respond(message, {
+      embeds: [warnEmbed("Provide a Reason")
+        .setDescription(`Usage: \`${PREFIX}close <reason>\`\n**Example:** \`${PREFIX}close Commission completed!\`\n\nOr use the **Close Ticket** button inside the ticket.`)],
+    });
+  }
+
+  await closeTicketChannel(message.channel, message.member || message.author, reason, message.guild);
+}
+
+async function closeTicketChannel(channel, closer, reason, guild) {
+  // Find the ticket owner from channel topic or name
+  const safeName = channel.name.replace("ticket-", "");
+  let ownerId = null;
+  // Try to find owner via permission overwrites
+  for (const [id, overwrite] of channel.permissionOverwrites.cache) {
+    if (overwrite.type === 1) { // member overwrite
+      ownerId = id;
+      break;
+    }
+  }
+
+  await channel.send({ embeds: [infoEmbed("📝 Generating Transcript…").setDescription("Please wait…")] });
+
+  let transcript = "";
+  try { transcript = await buildTranscript(channel); }
+  catch (err) { transcript = `Transcript failed: ${err.message}\nClosed by ${closer.user?.tag || closer.tag} at ${new Date().toISOString()}`; }
+
+  const transcriptBuffer = Buffer.from(transcript, "utf8");
+  const transcriptFile = { attachment: transcriptBuffer, name: `${channel.name}-transcript.txt` };
+
+  // Send transcript to staff channel
+  const settings = getGuildSettings(guild.id);
+  const targetChannelId = settings.transcriptsChannelId || data.modLogChannels[guild.id];
   if (targetChannelId) {
     try {
-      const target = await message.guild.channels.fetch(targetChannelId);
+      const target = await guild.channels.fetch(targetChannelId).catch(() => null);
       if (target?.isTextBased()) {
         await target.send({
-          embeds: [brandEmbed("🎟️ Ticket Closed").addFields({ name: "📁 Channel", value: `#${message.channel.name}` }, { name: "🔒 Closed by", value: message.author.tag }).setTimestamp()],
-          files: [{ attachment: Buffer.from(transcript, "utf8"), name: `${message.channel.name}-transcript.txt` }],
+          embeds: [brandEmbed("🎟️ Ticket Closed")
+            .addFields(
+              { name: "📁 Channel",    value: `#${channel.name}` },
+              { name: "🔒 Closed by", value: closer.user?.tag || closer.tag, inline: true },
+              { name: "📋 Reason",    value: reason, inline: true },
+            )
+            .setTimestamp()],
+          files: [transcriptFile],
         });
       }
-    } catch (err) { console.error("Transcript send failed:", err); }
+    } catch (err) { console.error("Transcript send to staff channel failed:", err); }
   }
+
+  // Send transcript to ticket owner's DMs
+  if (ownerId) {
+    try {
+      const owner = await client.users.fetch(ownerId).catch(() => null);
+      if (owner) {
+        await owner.send({
+          embeds: [brandEmbed("🎟️ Your Ticket Has Been Closed")
+            .setDescription(`Your ticket **#${channel.name}** has been closed.\n\n**Reason:** ${reason}\n\nA transcript of the ticket is attached below for your records.`)
+            .setFooter({ text: `${BOT_NAME} • Thank you!` })
+            .setTimestamp()],
+          files: [{ attachment: Buffer.from(transcript, "utf8"), name: `${channel.name}-transcript.txt` }],
+        });
+      }
+    } catch {
+      // DMs might be closed — that's okay
+    }
+  }
+
   data.stats.ticketsClosed = (data.stats.ticketsClosed || 0) + 1;
   saveData();
-  await message.channel.send({ embeds: [warnEmbed("🔒 Ticket Closing").setDescription("This channel will be deleted in **5 seconds**.")] });
-  setTimeout(() => message.channel.delete(`Closed by ${message.author.tag}`).catch(console.error), 5000);
+
+  await channel.send({ embeds: [warnEmbed("🔒 Ticket Closing").setDescription(`**Reason:** ${reason}\n\nThis channel will be deleted in **5 seconds**.`)] });
+  setTimeout(() => channel.delete(`Closed by ${closer.user?.tag || closer.tag}: ${reason}`).catch(console.error), 5000);
 }
 
 async function handleAddNote(message, args) {
@@ -2156,11 +2227,15 @@ async function handleAddNote(message, args) {
   await respond(message, { embeds: [new EmbedBuilder().setTitle("📝 Internal Staff Note").setDescription(text).setColor(NOTE_COLOR).setFooter({ text: `Note by ${message.author.tag}`, iconURL: message.author.displayAvatarURL() }).setTimestamp()] });
 }
 
-async function openTicketForUser(channel, member, formAnswers) {
+async function openTicketForUser(channel, member, ticketType, formAnswers) {
   const guild = channel.guild;
   if (!guild || !member) return { ok: false, error: "Tickets can only be created inside a server." };
-  const safeName = member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) || "user";
+
+  const typeLabels = { order: "Order", partnership: "Partnership", inquiry: "Inquiry" };
+  const typeLabel = typeLabels[ticketType] || "Ticket";
+  const safeName = member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16) || "user";
   const channelName = `ticket-${safeName}`;
+
   const existing = guild.channels.cache.find(c => c.name === channelName && c.type === ChannelType.GuildText);
   if (existing) return { ok: false, error: `You already have an open ticket: <#${existing.id}>`, channel: existing };
 
@@ -2176,7 +2251,13 @@ async function openTicketForUser(channel, member, formAnswers) {
 
   let created;
   try {
-    created = await guild.channels.create({ name: channelName, type: ChannelType.GuildText, topic: `Support ticket for ${member.user.tag}`, permissionOverwrites: overwrites, reason: `Ticket by ${member.user.tag}` });
+    created = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      topic: `[${typeLabel}] Support ticket for ${member.user.tag}`,
+      permissionOverwrites: overwrites,
+      reason: `Ticket (${typeLabel}) by ${member.user.tag}`,
+    });
   } catch (err) {
     console.error("Failed to create ticket:", err);
     return { ok: false, error: "I couldn't create your ticket. Make sure I have **Manage Channels**." };
@@ -2185,38 +2266,84 @@ async function openTicketForUser(channel, member, formAnswers) {
   data.stats.ticketsOpened = (data.stats.ticketsOpened || 0) + 1;
   saveData();
 
-  // Check if returning customer
   const isReturning = hasOrdered(member.id);
-  const closeRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("ticket_close").setLabel("Close Ticket").setStyle(ButtonStyle.Danger).setEmoji("🔒"));
 
-  if (formAnswers) {
-    const detailsEmbed = brandEmbed("🎫 New Ticket Submission")
+  // Close button
+  const closeRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticket_close_button")
+      .setLabel("Close Ticket")
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji("🔒")
+  );
+
+  // Build the details embed based on ticket type
+  let detailsEmbed;
+
+  if (ticketType === "order") {
+    const typeIcon = { "Custom Script": "🛠️", "Full System": "⚙️", "Code Review": "🔍", "Bug Fix": "🐛", "Other": "📋" };
+    detailsEmbed = new EmbedBuilder()
+      .setColor(BRAND_COLOR)
+      .setTitle("📦 New Order Ticket")
       .addFields(
-        { name: "👤 Username",        value: formAnswers.username    || "—" },
+        { name: "👤 Roblox Username",  value: formAnswers.username    || "—" },
         { name: "🛠️ Service Needed",  value: formAnswers.service     || "—" },
         { name: "📝 Description",     value: formAnswers.description || "—" },
         { name: "💰 Budget",          value: formAnswers.budget      || "—", inline: true },
-        { name: "💳 Payment",         value: formAnswers.payment     || "—", inline: true },
+        { name: "💳 Payment Method",  value: formAnswers.payment     || "—", inline: true },
       )
-      .setFooter({ text: `Submitted by ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+      .setFooter({ text: `Order Ticket • ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
       .setTimestamp();
-    if (isReturning) detailsEmbed.addFields({ name: "🎟️ Loyalty Discount", value: "✅ This user has ordered before — they qualify for a **5% discount**!" });
-    await created.send({ content: `<@${member.id}> — a staff member will be with you shortly.`, embeds: [detailsEmbed], components: [closeRow] });
-  } else {
-    const welcome = brandEmbed("🎟️ Ticket Opened!")
-      .setDescription(`Hi <@${member.id}>, welcome! A staff member will be with you shortly.\n\nPlease describe your issue or commission request in detail.\n\nUse \`${PREFIX}close\` or the button below to close this ticket.`)
-      .setFooter({ text: `${BOT_NAME} • Ticket System` });
-    if (isReturning) welcome.addFields({ name: "🎟️ Loyalty Discount", value: "You're a returning customer! You qualify for a **5% discount** on this order 💗" });
-    await created.send({ content: `<@${member.id}>`, embeds: [welcome], components: [closeRow] });
+
+  } else if (ticketType === "partnership") {
+    detailsEmbed = new EmbedBuilder()
+      .setColor(SUCCESS_COLOR)
+      .setTitle("🤝 New Partnership Ticket")
+      .addFields(
+        { name: "🏠 Server Name",        value: formAnswers.serverName   || "—" },
+        { name: "🔗 Invite Link",        value: formAnswers.invite       || "—" },
+        { name: "👥 Member Count",       value: formAnswers.memberCount  || "—", inline: true },
+        { name: "🎯 Server Focus",       value: formAnswers.focus        || "—", inline: true },
+        { name: "🤝 What We'd Offer",    value: formAnswers.offering     || "—" },
+      )
+      .setFooter({ text: `Partnership Ticket • ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+      .setTimestamp();
+
+  } else { // inquiry
+    detailsEmbed = new EmbedBuilder()
+      .setColor(INFO_COLOR)
+      .setTitle("❓ New General Inquiry Ticket")
+      .addFields(
+        { name: "👤 Name / Username",  value: formAnswers.name        || "—" },
+        { name: "❓ Question/Topic",   value: formAnswers.topic       || "—" },
+        { name: "📝 Details",          value: formAnswers.details     || "—" },
+        { name: "⚡ Urgency",          value: formAnswers.urgency     || "—", inline: true },
+      )
+      .setFooter({ text: `General Inquiry • ${member.user.tag}`, iconURL: member.user.displayAvatarURL() })
+      .setTimestamp();
   }
+
+  if (isReturning && ticketType === "order") {
+    detailsEmbed.addFields({ name: "🎟️ Loyalty Discount", value: "✅ Returning customer — qualifies for **5% off**!" });
+  }
+
+  await created.send({
+    content: `<@${member.id}> — A staff member will be with you shortly! 💗`,
+    embeds: [detailsEmbed],
+    components: [closeRow],
+  });
+
   return { ok: true, channel: created };
 }
 
-// Portfolio
+// ─────────────────────────────────────────────
+//  Portfolio
+// ─────────────────────────────────────────────
 const IMAGE_EXT_RE  = /\.(png|jpe?g|gif|webp|bmp)(?:\?|$)/i;
 const VIDEO_EXT_RE  = /\.(mov|mp4|webm|m4v|mkv)(?:\?|$)/i;
 const GENERIC_URL_RE = /^https?:\/\/\S+$/i;
 const MEDIA_HOSTS   = ["cdn.discordapp.com","media.discordapp.net","i.imgur.com","imgur.com","media.tenor.com","tenor.com","youtube.com","youtu.be"];
+
 function looksLikeMediaUrl(url) {
   if (!url) return false;
   if (IMAGE_EXT_RE.test(url) || VIDEO_EXT_RE.test(url)) return true;
@@ -2235,7 +2362,11 @@ async function handlePortfolio(message, args) {
   const isVid = isVideoUrl(work.url);
   const embed = brandEmbed(`🎨 Portfolio — ${work.title || `Entry #${work.id}`}`)
     .setURL(work.url)
-    .addFields({ name: "🆔 ID", value: `#${work.id}`, inline: true }, { name: "📂 Type", value: isVid ? "🎥 Video" : "🖼️ Image", inline: true }, { name: "📅 Added", value: when, inline: true })
+    .addFields(
+      { name: "🆔 ID",   value: `#${work.id}`,                               inline: true },
+      { name: "📂 Type", value: isVid ? "🎥 Video" : "🖼️ Image",             inline: true },
+      { name: "📅 Added", value: when,                                        inline: true },
+    )
     .setFooter({ text: `Page ${page} of ${total} • Use ${PREFIX}work <page> to browse` });
   if (!isVid) { embed.setImage(work.url); await respond(message, { embeds: [embed] }); }
   else { embed.setDescription(`[▶️ Click here to open the video](${work.url})`); await respond(message, { content: work.url, embeds: [embed] }); }
@@ -2246,7 +2377,7 @@ async function handleAddWork(message, args) {
     return respond(message, { embeds: [errorEmbed("No Permission").setDescription("You need **Manage Server**.")] });
   let url = null, title = "";
   if (args[0] && GENERIC_URL_RE.test(args[0])) { url = args[0]; title = args.slice(1).join(" ").trim(); }
-  else { const a = message.attachments.find(a => a.contentType?.startsWith("image/") || IMAGE_EXT_RE.test(a.url)); if (a) { url = a.url; title = args.join(" ").trim(); } }
+  else { const a = message.attachments?.find(a => a.contentType?.startsWith("image/") || IMAGE_EXT_RE.test(a.url)); if (a) { url = a.url; title = args.join(" ").trim(); } }
   if (!url) return respond(message, { embeds: [warnEmbed("Missing URL").setDescription(`\`${PREFIX}addwork <url> [title]\` — or attach an image.`)] });
   if (!looksLikeMediaUrl(url)) return respond(message, { embeds: [errorEmbed("Invalid URL").setDescription("That doesn't look like a direct media link.")] });
   const work = { id: data.nextWorkId++, url, title: title || null, addedBy: message.author.tag, addedById: message.author.id, timestamp: new Date().toISOString() };
@@ -2269,7 +2400,9 @@ async function handleRemoveWork(message, args) {
   await respond(message, { embeds: [warnEmbed(`🗑️ Removed Portfolio Entry #${removed.id}`).setDescription(removed.title || "(no title)").setFooter({ text: `Removed by ${message.author.tag}` }).setTimestamp()] });
 }
 
-// Moderation commands
+// ─────────────────────────────────────────────
+//  Moderation commands
+// ─────────────────────────────────────────────
 async function handleBan(message, args) {
   if (!hasPerm(message.member, PermissionFlagsBits.BanMembers)) return respond(message, { embeds: [errorEmbed("No Permission")] });
   if (!message.guild.members.me.permissions.has(PermissionFlagsBits.BanMembers)) return respond(message, { embeds: [errorEmbed("Missing Bot Permission")] });
@@ -2372,7 +2505,9 @@ async function handlePurge(message, args) {
   } catch { await respond(message, { embeds: [errorEmbed("Purge Failed").setDescription("Messages older than 14 days can't be bulk-deleted.")] }); }
 }
 
-// Admin
+// ─────────────────────────────────────────────
+//  Admin
+// ─────────────────────────────────────────────
 async function handleAddOrder(message, args) {
   if (!isAdmin(message.member)) return respond(message, { embeds: [errorEmbed("No Permission")] });
   if (args.length < 2) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}addorder <@user> <details>\``)] });
@@ -2456,7 +2591,7 @@ async function handleSay(message, args) {
   if (!isAdmin(message.member) && !hasPerm(message.member, PermissionFlagsBits.ManageMessages)) return respond(message, { embeds: [errorEmbed("No Permission")] });
   const text = args.join(" ").trim();
   if (!text) return respond(message, { embeds: [warnEmbed("Usage").setDescription(`\`${PREFIX}say <message>\``)] });
-  await message.delete().catch(() => {});
+  try { await message.delete(); } catch {}
   await message.channel.send({ content: text, allowedMentions: { parse: ["users"] } });
 }
 
@@ -2464,62 +2599,43 @@ async function handleSay(message, args) {
 //  Command map
 // ─────────────────────────────────────────────
 const commands = {
-  // General
   help: handleHelp, info: handleInfo, status: handleStatus, ping: handlePing,
   rules: handleRules, prices: handlePrices, uptime: handleUptime, discount: handleDiscount,
-  // Commissions
   services: handleServices, queue: handleQueue, statusorder: handleStatusOrder,
   ticket: handleTicket, pay: handlePay, payment: handlePay,
-  // Portfolio
-  portfolio: handlePortfolio, work: handlePortfolio, works: handlePortfolio,
+  portfolio: handlePortfolio, work: handleWork, works: handlePortfolio,
   addwork: handleAddWork, removework: handleRemoveWork,
-  // Scripting
   script: handleScript, snippet: handleSnippet, docs: handleDocs, debug: handleDebug,
-  // Info
   userinfo: handleUserInfo, serverinfo: handleServerInfo, avatar: handleAvatar,
   banner: handleBanner, servericon: handleServerIcon, stats: handleStats,
   color: handleColor, calc: handleCalc,
-  // Reviews
   review: handleReview, vouch: handleVouch,
-  // Leveling
   level: handleLevel, rank: handleRank, leaderboard: handleLeaderboard, lb: handleLeaderboard,
-  // Economy
   balance: handleBalance, bal: handleBalance,
-  work2: handleWork,   // separate from portfolio alias
   shop: handleShop, buy: handleBuy,
   daily: handleDaily, givecoins: handleGiveCoins,
-  // Invites
   invites: handleMyInvites, myinvites: handleMyInvites,
   inviteleaderboard: handleInviteLeaderboard, invitelb: handleInviteLeaderboard,
-  // Fun
   quote: handleQuote, tip: handleTip, meme: handleMeme,
   "8ball": handle8Ball, rate: handleRate,
   coinflip: handleCoinFlip, flip: handleCoinFlip,
   roll: handleRoll, dice: handleRoll,
   rps: handleRPS, trivia: handleTrivia,
   remindme: handleReminder, reminder: handleReminder,
-  // Moderation
   ban: handleBan, kick: handleKick, mute: handleMute,
   warn: handleWarn, warns: handleWarns, unwarn: handleUnwarn, purge: handlePurge,
   lock: handleLock, unlock: handleUnlock, slowmode: handleSlowmode, nick: handleNick,
-  // Tickets
   ticketpanel: handleTicketPanel, close: handleClose, addnote: handleAddNote,
-  // Admin
   addorder: handleAddOrder, complete: handleComplete, announce: handleAnnounce,
   partner: handlePartner, blacklist: handleBlacklist, setlog: handleSetLog,
   setreviews: handleSetReviews, settranscripts: handleSetTranscripts, say: handleSay,
   poll: handlePoll, giveaway: handleGiveaway, embed: handleEmbed,
 };
 
-// work alias (separate from portfolio)
-const ECONOMY_WORK_COMMANDS = new Set(["work2"]);
-
 // ─────────────────────────────────────────────
 //  messageCreate
 // ─────────────────────────────────────────────
 const ADMIN_BYPASS = new Set(["blacklist"]);
-const XP_COOLDOWN_MAP = new Map();
-const COIN_COOLDOWN_MAP = new Map();
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -2531,7 +2647,7 @@ client.on("messageCreate", async (message) => {
     refreshSticky(message.channel).catch(() => {});
   }
 
-  // ── Passive XP & coins (all messages) ──
+  // ── Passive XP & coins ──
   if (!message.content.startsWith(PREFIX)) {
     handleXpGrant(message).catch(() => {});
     handleCoinGrant(message).catch(() => {});
@@ -2558,13 +2674,7 @@ client.on("messageCreate", async (message) => {
   const commandName = args.shift()?.toLowerCase();
   if (!commandName) return;
 
-  // Special alias: s!work maps to economy work, not portfolio
-  let handler;
-  if (commandName === "work") {
-    handler = handleWork;
-  } else {
-    handler = commands[commandName];
-  }
+  const handler = commands[commandName];
   if (!handler) return;
 
   // Blacklist check
@@ -2598,12 +2708,61 @@ client.on("messageCreate", async (message) => {
 });
 
 // ─────────────────────────────────────────────
-//  guildCreate — send setup message
+//  guildCreate / guildDelete — log to home guild
 // ─────────────────────────────────────────────
 client.on("guildCreate", async (guild) => {
   console.log(`Joined new guild: ${guild.name} (${guild.id})`);
   await sendSetupMessage(guild);
   await cacheInvites(guild).catch(() => {});
+
+  // Log to home guild
+  try {
+    const homeGuild = client.guilds.cache.get(HOME_GUILD_ID);
+    if (homeGuild) {
+      const ch = await homeGuild.channels.fetch(GUILD_JOIN_LOG_CHANNEL).catch(() => null);
+      if (ch?.isTextBased()) {
+        const owner = await client.users.fetch(guild.ownerId).catch(() => null);
+        await ch.send({
+          embeds: [successEmbed("✅ Bot Joined a New Server")
+            .setThumbnail(guild.iconURL({ size: 256 }) || null)
+            .addFields(
+              { name: "🏠 Server",    value: `${guild.name}`,                                              inline: true },
+              { name: "🆔 ID",        value: guild.id,                                                     inline: true },
+              { name: "👑 Owner",     value: owner ? `${owner.tag} (${owner.id})` : guild.ownerId,         inline: true },
+              { name: "👥 Members",   value: `${guild.memberCount}`,                                        inline: true },
+              { name: "📅 Created",   value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:F>`,          inline: true },
+              { name: "🌐 Total Servers", value: `${client.guilds.cache.size}`,                             inline: true },
+            )
+            .setTimestamp()],
+        });
+      }
+    }
+  } catch (err) { console.error("Guild join log failed:", err); }
+});
+
+client.on("guildDelete", async (guild) => {
+  console.log(`Left guild: ${guild.name} (${guild.id})`);
+
+  // Log to home guild
+  try {
+    const homeGuild = client.guilds.cache.get(HOME_GUILD_ID);
+    if (homeGuild) {
+      const ch = await homeGuild.channels.fetch(GUILD_LEAVE_LOG_CHANNEL).catch(() => null);
+      if (ch?.isTextBased()) {
+        await ch.send({
+          embeds: [errorEmbed("❌ Bot Left / Removed from a Server")
+            .setThumbnail(guild.iconURL({ size: 256 }) || null)
+            .addFields(
+              { name: "🏠 Server",        value: `${guild.name}`,                               inline: true },
+              { name: "🆔 ID",            value: guild.id,                                      inline: true },
+              { name: "👥 Members",       value: `${guild.memberCount ?? "Unknown"}`,             inline: true },
+              { name: "🌐 Total Servers", value: `${client.guilds.cache.size}`,                  inline: true },
+            )
+            .setTimestamp()],
+        });
+      }
+    }
+  } catch (err) { console.error("Guild leave log failed:", err); }
 });
 
 // ─────────────────────────────────────────────
@@ -2626,28 +2785,30 @@ client.on("inviteDelete", async (invite) => {
 
 client.on("guildMemberAdd", async (member) => {
   try {
-    // Find which invite was used
     const guild = member.guild;
     const newInvites = await guild.invites.fetch().catch(() => null);
     if (newInvites) {
       const cached = data.inviteCache[guild.id] || {};
-      let usedCode = null;
+      let inviterId = null;
       newInvites.forEach(inv => {
-        if ((inv.uses || 0) > (cached[inv.code] || 0)) usedCode = inv.inviter?.id;
+        if ((inv.uses || 0) > (cached[inv.code] || 0)) inviterId = inv.inviter?.id;
         cached[inv.code] = inv.uses || 0;
       });
       data.inviteCache[guild.id] = cached;
 
-      if (usedCode) {
+      if (inviterId) {
         if (!data.invites[guild.id]) data.invites[guild.id] = {};
-        if (!data.invites[guild.id][usedCode]) data.invites[guild.id][usedCode] = { invited: 0, left: 0 };
-        data.invites[guild.id][usedCode].invited++;
+        if (!data.invites[guild.id][inviterId]) data.invites[guild.id][inviterId] = { invited: 0, left: 0 };
+        data.invites[guild.id][inviterId].invited++;
       }
       saveData();
     }
 
     await logMod(guild, successEmbed("📥 Member Joined")
-      .addFields({ name: "👤 User", value: `<@${member.id}> (${member.user.tag})` }, { name: "📅 Account Created", value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` })
+      .addFields(
+        { name: "👤 User",             value: `<@${member.id}> (${member.user.tag})` },
+        { name: "📅 Account Created",  value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` },
+      )
       .setThumbnail(member.user.displayAvatarURL())
       .setTimestamp());
   } catch (err) { console.error("guildMemberAdd failed:", err); }
@@ -2655,11 +2816,7 @@ client.on("guildMemberAdd", async (member) => {
 
 client.on("guildMemberRemove", async (member) => {
   try {
-    // Increment "left" count for whoever invited them (tracked by guild invites mapping)
-    const guild = member.guild;
-    const guildInvites = data.invites[guild.id] || {};
-    // We can't easily determine who invited them when they leave, so we just log the departure
-    await logMod(guild, errorEmbed("📤 Member Left")
+    await logMod(member.guild, errorEmbed("📤 Member Left")
       .addFields({ name: "👤 User", value: `<@${member.id}> (${member.user.tag})` })
       .setThumbnail(member.user.displayAvatarURL())
       .setTimestamp());
@@ -2673,7 +2830,11 @@ client.on("messageDelete", async (message) => {
   try {
     if (!message.guild || message.author?.bot || message.partial || !message.content) return;
     await logMod(message.guild, errorEmbed("🗑️ Message Deleted")
-      .addFields({ name: "👤 Author", value: `<@${message.author.id}> (${message.author.tag})`, inline: true }, { name: "💬 Channel", value: `<#${message.channel.id}>`, inline: true }, { name: "📝 Content", value: message.content.slice(0, 1024) })
+      .addFields(
+        { name: "👤 Author",  value: `<@${message.author.id}> (${message.author.tag})`, inline: true },
+        { name: "💬 Channel", value: `<#${message.channel.id}>`,                        inline: true },
+        { name: "📝 Content", value: message.content.slice(0, 1024) },
+      )
       .setTimestamp());
   } catch (err) { console.error("messageDelete log failed:", err); }
 });
@@ -2683,13 +2844,19 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     if (!newMessage.guild || newMessage.author?.bot || oldMessage.partial || newMessage.partial) return;
     if (oldMessage.content === newMessage.content) return;
     await logMod(newMessage.guild, warnEmbed("✏️ Message Edited")
-      .addFields({ name: "👤 Author", value: `<@${newMessage.author.id}> (${newMessage.author.tag})`, inline: true }, { name: "💬 Channel", value: `<#${newMessage.channel.id}>`, inline: true }, { name: "📄 Before", value: (oldMessage.content || "—").slice(0, 1024) }, { name: "✅ After", value: (newMessage.content || "—").slice(0, 1024) }, { name: "🔗 Jump", value: `[Go to message](${newMessage.url})` })
+      .addFields(
+        { name: "👤 Author",  value: `<@${newMessage.author.id}> (${newMessage.author.tag})`, inline: true },
+        { name: "💬 Channel", value: `<#${newMessage.channel.id}>`,                           inline: true },
+        { name: "📄 Before",  value: (oldMessage.content || "—").slice(0, 1024) },
+        { name: "✅ After",   value: (newMessage.content || "—").slice(0, 1024) },
+        { name: "🔗 Jump",    value: `[Go to message](${newMessage.url})` },
+      )
       .setTimestamp());
   } catch (err) { console.error("messageUpdate log failed:", err); }
 });
 
 // ─────────────────────────────────────────────
-//  Interactions (ticket modal & buttons)
+//  ── INTERACTIONS ──
 // ─────────────────────────────────────────────
 client.on("interactionCreate", async (interaction) => {
   try {
@@ -2698,53 +2865,194 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    // ── BUTTONS ──
     if (interaction.isButton()) {
-      if (interaction.customId === "ticket_open") {
-        const modal = new ModalBuilder().setCustomId("ticket_form").setTitle("Open a Ticket");
-        const fields = [
-          new TextInputBuilder().setCustomId("username").setLabel("Username").setPlaceholder("Your Roblox or preferred username").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true),
-          new TextInputBuilder().setCustomId("service").setLabel("Service needed").setPlaceholder("e.g. Custom script, full system, code review").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true),
-          new TextInputBuilder().setCustomId("description").setLabel("Description of the job").setPlaceholder("Describe what you need built — be as specific as you can.").setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true),
-          new TextInputBuilder().setCustomId("budget").setLabel("How much are you paying?").setPlaceholder("e.g. $25 USD, 5000 Robux, $50 giftcard").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true),
-          new TextInputBuilder().setCustomId("payment").setLabel("Payment method").setPlaceholder("Robux, USD (PayPal/CashApp), Giftcards, etc.").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true),
-        ];
-        modal.addComponents(...fields.map(f => new ActionRowBuilder().addComponents(f)));
+
+      // ── Ticket type buttons ──
+      if (["ticket_order", "ticket_partnership", "ticket_inquiry"].includes(interaction.customId)) {
+        const typeMap = {
+          ticket_order:       { type: "order",       label: "Order a Script" },
+          ticket_partnership: { type: "partnership", label: "Partnership Request" },
+          ticket_inquiry:     { type: "inquiry",     label: "General Inquiry" },
+        };
+        const { type, label } = typeMap[interaction.customId];
+        let modal;
+
+        if (type === "order") {
+          modal = new ModalBuilder().setCustomId("ticket_form_order").setTitle("📦 Order a Script");
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("username").setLabel("Your Roblox Username").setPlaceholder("Your Roblox or preferred username").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("service").setLabel("Service needed").setPlaceholder("e.g. Custom script, full game system, UI, datastore").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("description").setLabel("Description of the job").setPlaceholder("Describe what you need in detail — be specific!").setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("budget").setLabel("Your budget").setPlaceholder("e.g. $25 USD, 5000 Robux, $50 giftcard").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("payment").setLabel("Payment method").setPlaceholder("Robux, USD (PayPal/CashApp), Giftcards, etc.").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+            ),
+          );
+
+        } else if (type === "partnership") {
+          modal = new ModalBuilder().setCustomId("ticket_form_partnership").setTitle("🤝 Partnership Request");
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("serverName").setLabel("Your Server Name").setPlaceholder("e.g. Chill Zone").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("invite").setLabel("Your Server Invite Link").setPlaceholder("e.g. discord.gg/yourcode").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("memberCount").setLabel("Approximate Member Count").setPlaceholder("e.g. 250").setStyle(TextInputStyle.Short).setMaxLength(50).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("focus").setLabel("What is your server's focus?").setPlaceholder("e.g. Roblox dev community, gaming, etc.").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("offering").setLabel("What can you offer us?").setPlaceholder("e.g. Shoutout in announcements, mutual promotion, etc.").setStyle(TextInputStyle.Paragraph).setMaxLength(500).setRequired(true)
+            ),
+          );
+
+        } else { // inquiry
+          modal = new ModalBuilder().setCustomId("ticket_form_inquiry").setTitle("❓ General Inquiry");
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("name").setLabel("Your Name / Username").setPlaceholder("What should we call you?").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("topic").setLabel("What is your question/topic?").setPlaceholder("e.g. Pricing question, technical help, etc.").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("details").setLabel("More details").setPlaceholder("Describe your question or inquiry in detail.").setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId("urgency").setLabel("How urgent is this?").setPlaceholder("e.g. Not urgent, within a few days, ASAP").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false)
+            ),
+          );
+        }
+
         await interaction.showModal(modal);
         return;
       }
 
-      if (interaction.customId === "ticket_close") {
+      // ── Close ticket button ──
+      if (interaction.customId === "ticket_close_button") {
         const channel = interaction.channel;
-        if (!channel?.name?.startsWith("ticket-")) return interaction.reply({ content: "❌ This button only works inside a ticket channel.", flags: MessageFlags.Ephemeral });
+        if (!channel?.name?.startsWith("ticket-")) {
+          return interaction.reply({ content: "❌ This button only works inside a ticket channel.", flags: MessageFlags.Ephemeral });
+        }
+
+        // Check permission: staff or the ticket owner
         const isStaff = isAdmin(interaction.member) || hasPerm(interaction.member, PermissionFlagsBits.ManageChannels);
-        const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+        const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16);
         const isOwner  = channel.name === `ticket-${safeName}`;
-        if (!isStaff && !isOwner) return interaction.reply({ content: "❌ Only the ticket owner or staff can close this ticket.", flags: MessageFlags.Ephemeral });
-        await interaction.reply({ embeds: [warnEmbed("🔒 Closing Ticket").setDescription("This channel will be deleted in **5 seconds**.")] });
-        setTimeout(() => channel.delete(`Closed by ${interaction.user.tag}`).catch(console.error), 5000);
+        if (!isStaff && !isOwner) {
+          return interaction.reply({ content: "❌ Only the ticket owner or staff can close this ticket.", flags: MessageFlags.Ephemeral });
+        }
+
+        // Show a modal asking for a close reason
+        const modal = new ModalBuilder()
+          .setCustomId("ticket_close_reason")
+          .setTitle("🔒 Close Ticket");
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("close_reason")
+              .setLabel("Reason for closing")
+              .setPlaceholder("e.g. Issue resolved, commission completed, no response...")
+              .setStyle(TextInputStyle.Paragraph)
+              .setMaxLength(500)
+              .setRequired(true)
+          )
+        );
+        await interaction.showModal(modal);
         return;
       }
     }
 
-    if (interaction.isModalSubmit() && interaction.customId === "ticket_form") {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const formAnswers = {
-        username:    interaction.fields.getTextInputValue("username"),
-        service:     interaction.fields.getTextInputValue("service"),
-        description: interaction.fields.getTextInputValue("description"),
-        budget:      interaction.fields.getTextInputValue("budget"),
-        payment:     interaction.fields.getTextInputValue("payment"),
-      };
-      const member = interaction.member ?? await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-      const result = await openTicketForUser(interaction.channel, member, formAnswers);
-      if (!result.ok) return interaction.editReply({ content: result.error });
-      await interaction.editReply({ content: `✅ Your ticket has been created: <#${result.channel.id}>` });
+    // ── MODAL SUBMITS ──
+    if (interaction.isModalSubmit()) {
+
+      // ── Ticket forms ──
+      if (["ticket_form_order", "ticket_form_partnership", "ticket_form_inquiry"].includes(interaction.customId)) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        const typeMap = {
+          ticket_form_order:       "order",
+          ticket_form_partnership: "partnership",
+          ticket_form_inquiry:     "inquiry",
+        };
+        const ticketType = typeMap[interaction.customId];
+
+        // Gather answers based on type
+        const formAnswers = {};
+        if (ticketType === "order") {
+          formAnswers.username    = interaction.fields.getTextInputValue("username");
+          formAnswers.service     = interaction.fields.getTextInputValue("service");
+          formAnswers.description = interaction.fields.getTextInputValue("description");
+          formAnswers.budget      = interaction.fields.getTextInputValue("budget");
+          formAnswers.payment     = interaction.fields.getTextInputValue("payment");
+        } else if (ticketType === "partnership") {
+          formAnswers.serverName   = interaction.fields.getTextInputValue("serverName");
+          formAnswers.invite       = interaction.fields.getTextInputValue("invite");
+          formAnswers.memberCount  = interaction.fields.getTextInputValue("memberCount");
+          formAnswers.focus        = interaction.fields.getTextInputValue("focus");
+          formAnswers.offering     = interaction.fields.getTextInputValue("offering");
+        } else {
+          formAnswers.name    = interaction.fields.getTextInputValue("name");
+          formAnswers.topic   = interaction.fields.getTextInputValue("topic");
+          formAnswers.details = interaction.fields.getTextInputValue("details");
+          formAnswers.urgency = interaction.fields.getTextInputValue("urgency");
+        }
+
+        const member = interaction.member ?? await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+        const result = await openTicketForUser(interaction.channel, member, ticketType, formAnswers);
+
+        if (!result.ok) return interaction.editReply({ content: `❌ ${result.error}` });
+        await interaction.editReply({ content: `✅ Your ticket has been created: <#${result.channel.id}>` });
+        return;
+      }
+
+      // ── Close ticket reason modal ──
+      if (interaction.customId === "ticket_close_reason") {
+        const reason = interaction.fields.getTextInputValue("close_reason");
+        const channel = interaction.channel;
+
+        if (!channel?.name?.startsWith("ticket-")) {
+          return interaction.reply({ content: "❌ This is not a ticket channel.", flags: MessageFlags.Ephemeral });
+        }
+
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: "🔒 Closing ticket..." });
+
+        await closeTicketChannel(channel, interaction.member || interaction.user, reason, interaction.guild);
+        return;
+      }
+
+      // ── Close ticket reason from command ──
+      if (interaction.customId === "ticket_close_reason_cmd") {
+        const reason = interaction.fields.getTextInputValue("close_reason");
+        const channel = interaction.channel;
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: "🔒 Closing ticket..." });
+        await closeTicketChannel(channel, interaction.member || interaction.user, reason, interaction.guild);
+        return;
+      }
     }
+
   } catch (err) {
     console.error("Interaction error:", err);
     await sendErrorLog(err, "Interaction handler");
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred)
-      await interaction.reply({ content: "❌ Something went wrong.", flags: MessageFlags.Ephemeral }).catch(() => {});
+    try {
+      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "❌ Something went wrong. Please try again.", flags: MessageFlags.Ephemeral });
+      }
+    } catch {}
   }
 });
 
