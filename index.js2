@@ -350,7 +350,6 @@ async function callTicketAI(channelId, userMessage, ticketType, formContext) {
   "HTTP-Referer": "https://snugglesbot.com",
   "X-Title": "Snuggles Ticket Bot"
 }
-        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
