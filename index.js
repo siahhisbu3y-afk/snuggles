@@ -312,7 +312,8 @@ const TRIVIA_QUESTIONS = [
 //  AI Ticket Handler — Groq with fallback
 // ─────────────────────────────────────────────
 const ticketConversations = new Map();
-const ticketAIDisabled = new Set();
+const ticketAIDisabled    = new Set();
+const partnerAwaitingAd   = new Map(); // channelId → { member, formAnswers, memberCount, pingContent, tierLabel }
 
 const AI_SYSTEM_PROMPT = `You are the support assistant for **Snuggles Scripting** — a professional Roblox scripting services server owned and operated by **SnugglesMcBear**. You help customers inside their support tickets while they wait for a staff member.
 
@@ -514,10 +515,21 @@ const client = new Client({
 // ─────────────────────────────────────────────
 //  Dynamic bot status
 // ─────────────────────────────────────────────
+const STATUS_CYCLE = [
+  (n) => ({ name: `over ${n} server${n !== 1 ? "s" : ""} 💗`,          type: ActivityType.Watching  }),
+  (n) => ({ name: `${n} communit${n !== 1 ? "ies" : "y"} grow 🌱`,     type: ActivityType.Watching  }),
+  (n) => ({ name: `${n} Roblox scripter${n !== 1 ? "s" : ""} ✨`,      type: ActivityType.Watching  }),
+  (n) => ({ name: `snuggles-scripting.com 🤝`,                          type: ActivityType.Playing   }),
+  (n) => ({ name: `${n} server${n !== 1 ? "s" : ""} stay cozy ☁️`,     type: ActivityType.Watching  }),
+];
+let _statusIdx = 0;
+
 function updateBotStatus() {
   try {
-    const count = client.guilds.cache.size;
-    client.user?.setActivity(`${count} server${count !== 1 ? "s" : ""}`, { type: ActivityType.Watching });
+    const count  = client.guilds.cache.size;
+    const preset = STATUS_CYCLE[_statusIdx % STATUS_CYCLE.length](count);
+    _statusIdx++;
+    client.user?.setActivity(preset.name, { type: preset.type });
   } catch {}
 }
 
@@ -2412,12 +2424,11 @@ async function openTicketForUser(channel, member, ticketType, formAnswers) {
     });
   }
 
-  // Auto-post to partner ad channel when a partnership ticket is created
+  // Partnership — validate member count then set up AI-guided ad collection
   if (ticketType === "partnership") {
     setImmediate(async () => {
       try {
-        // Parse member count — strip commas, grab first number found
-        const rawCount   = String(formAnswers.memberCount || "0").replace(/,/g, "").match(/\d+/);
+        const rawCount    = String(formAnswers.memberCount || "0").replace(/,/g, "").match(/\d+/);
         const memberCount = rawCount ? parseInt(rawCount[0], 10) : 0;
         const MIN_MEMBERS = 45;
 
@@ -2434,14 +2445,13 @@ async function openTicketForUser(channel, member, ticketType, formAnswers) {
             .setFooter({ text: `${BOT_NAME} • Partnership Requirements` })
             .setTimestamp();
           await created.send({ embeds: [declineEmbed] });
-          // Close ticket automatically after 10 seconds
           setTimeout(async () => {
             try { await created.delete("Partnership declined: under minimum member count"); } catch {}
           }, 10_000);
           return;
         }
 
-        // Determine ping level based on member count
+        // Determine ping tier
         let pingContent = "";
         let tierLabel   = "";
         if (memberCount >= 120) {
@@ -2455,33 +2465,30 @@ async function openTicketForUser(channel, member, ticketType, formAnswers) {
           tierLabel   = "🌱 Small Server (45–69)";
         }
 
-        const homeGuild = client.guilds.cache.get(HOME_GUILD_ID);
-        if (!homeGuild) return;
-        const partnerCh = await homeGuild.channels.fetch(PARTNER_AD_CHANNEL_ID).catch(() => null);
-        if (!partnerCh?.isTextBased()) return;
+        // Register ticket as awaiting ad content — AI will collect it
+        partnerAwaitingAd.set(created.id, { member, formAnswers, memberCount, pingContent, tierLabel });
 
-        const partnerEmbed = new EmbedBuilder()
-          .setColor(TEAL_COLOR)
-          .setTitle("🤝 New Partnership Application")
-          .setDescription("A new partnership request has been submitted and is **pending staff review**.")
-          .addFields(
-            { name: "🏠 Server",          value: formAnswers.serverName  || "—", inline: true },
-            { name: "👥 Members",          value: formAnswers.memberCount || "—", inline: true },
-            { name: "📊 Tier",             value: tierLabel,                      inline: true },
-            { name: "🎯 Server Focus",     value: formAnswers.focus       || "—", inline: true },
-            { name: "🔗 Invite",           value: formAnswers.invite      || "—" },
-            { name: "🤝 What They Offer",  value: formAnswers.offering    || "—" },
-          )
-          .setFooter({ text: `Submitted by ${member.user.tag} • Awaiting Staff Approval` })
-          .setTimestamp();
+        // AI requests the server ad from the applicant
+        const adRequestPrompt = [
+          `A partnership application has just been submitted with these details:`,
+          `Server: ${formAnswers.serverName}`,
+          `Members: ${formAnswers.memberCount} (Tier: ${tierLabel})`,
+          `Focus: ${formAnswers.focus}`,
+          `Offering: ${formAnswers.offering}`,
+          `Invite: ${formAnswers.invite}`,
+          ``,
+          `Their application looks valid and meets our requirements! Now you need to ask them to send their server ad.`,
+          `Explain clearly that you are the AI manager for Snuggles Scripting partnerships, that their application has been approved in principle,`,
+          `and that you just need them to send their server ad text (a short description they want posted in our partner channel) and optionally a banner image.`,
+          `Once they send it, it will be automatically posted to our partner ad channel. Keep the message warm, professional, and exciting for them. 💗`,
+        ].join("\n");
 
-        await partnerCh.send({
-          content: pingContent || undefined,
-          embeds: [partnerEmbed],
-          allowedMentions: pingContent ? { parse: [pingContent === "@everyone" ? "everyone" : "here"] } : { parse: [] },
-        });
+        const aiResponse = await callTicketAI(created.id, adRequestPrompt, "partnership", formContextText);
+        if (aiResponse) {
+          await created.send({ content: `-# 🤖 **Snuggles AI**  •  Partnership Manager\n\n${aiResponse}`, allowedMentions: { users: [] } });
+        }
       } catch (err) {
-        console.error("[Partner Ad] Auto-post failed:", err.message);
+        console.error("[Partner AI] Setup failed:", err.message);
       }
     });
   }
@@ -2746,27 +2753,86 @@ client.on("messageCreate", async (message) => {
 
   if (message.channel.id === STICKY_CHANNEL_ID) refreshSticky(message.channel).catch(() => {});
 
-  // AI reply in support forum threads
+  // ── Partnership ad collection ──────────────────────────────────────────
+  if (partnerAwaitingAd.has(message.channel.id)) {
+    const adData  = partnerAwaitingAd.get(message.channel.id);
+    const isOwner = message.author.id === adData.member.id;
+    if (isOwner && message.content.trim().length >= 20) {
+      partnerAwaitingAd.delete(message.channel.id);
+      setImmediate(async () => {
+        try {
+          const { formAnswers, memberCount, pingContent, tierLabel } = adData;
+          const adText   = message.content.trim();
+          const banner   = message.attachments.first()?.url || null;
+
+          const homeGuild = client.guilds.cache.get(HOME_GUILD_ID);
+          if (!homeGuild) return;
+          const partnerCh = await homeGuild.channels.fetch(PARTNER_AD_CHANNEL_ID).catch(() => null);
+          if (!partnerCh?.isTextBased()) return;
+
+          const adEmbed = new EmbedBuilder()
+            .setColor(TEAL_COLOR)
+            .setTitle(`🤝 New Partner — ${formAnswers.serverName}`)
+            .setDescription(adText)
+            .addFields(
+              { name: "👥 Members",      value: formAnswers.memberCount || "—", inline: true },
+              { name: "📊 Tier",         value: tierLabel,                      inline: true },
+              { name: "🎯 Focus",        value: formAnswers.focus       || "—", inline: true },
+              { name: "🔗 Invite",       value: formAnswers.invite      || "—" },
+              { name: "🤝 They Offer",   value: formAnswers.offering    || "—" },
+            )
+            .setFooter({ text: `${BOT_NAME} • Partnership` })
+            .setTimestamp();
+          if (banner) adEmbed.setImage(banner);
+
+          await partnerCh.send({
+            content: pingContent || undefined,
+            embeds: [adEmbed],
+            allowedMentions: pingContent ? { parse: [pingContent === "@everyone" ? "everyone" : "here"] } : { parse: [] },
+          });
+
+          // Confirm in ticket then close
+          const confirmEmbed = new EmbedBuilder()
+            .setColor(SUCCESS_COLOR)
+            .setTitle("✅ Partnership Approved & Posted!")
+            .setDescription(
+              `Your server ad has been published to <#${PARTNER_AD_CHANNEL_ID}>! 🎉\n\n` +
+              `Welcome to the **${BOT_NAME}** partner family! 💗\n` +
+              `This ticket will close automatically in **15 seconds**.`
+            )
+            .setFooter({ text: `${BOT_NAME} • Partnership Manager` })
+            .setTimestamp();
+          await message.channel.send({ embeds: [confirmEmbed] });
+          setTimeout(() => message.channel.delete("Partnership ad posted — auto-close").catch(() => {}), 15_000);
+        } catch (err) {
+          console.error("[Partner Ad] Post failed:", err.message);
+        }
+      });
+      return;
+    }
+  }
+
+  // ── AI reply in support forum threads (fully AI-managed, no staff needed) ──
   if (message.channel.isThread?.() && message.channel.parentId === FORUM_SUPPORT_CHANNEL_ID) {
-    const isStaff = isAdmin(message.member) || hasPerm(message.member, PermissionFlagsBits.ManageMessages);
-    if (!isStaff && GROQ_API_KEY && !ticketAIDisabled.has(message.channel.id)) {
+    if (GROQ_API_KEY) {
       const cooldownKey = `forum:${message.channel.id}:${message.author.id}`;
       const lastAI = aiCooldowns.get(cooldownKey) || 0;
-      if (Date.now() - lastAI >= 15000) {
+      if (Date.now() - lastAI >= 4000) {
         aiCooldowns.set(cooldownKey, Date.now());
         setImmediate(async () => {
           try {
             const aiResponse = await callTicketAI(`forum_${message.channel.id}`, message.content, "inquiry", null);
             if (aiResponse) {
-              await message.channel.send({ content: `-# 🤖 **Snuggles AI**  •  automated reply — staff will follow up shortly\n\n${aiResponse}`, allowedMentions: { users: [] } });
+              await message.channel.send({ content: `-# 🤖 **Snuggles AI Support**  •  fully AI-managed\n\n${aiResponse}`, allowedMentions: { users: [] } });
             }
           } catch (err) { console.error("[Forum AI]", err.message); }
         });
       }
     }
+    return;
   }
 
-  // AI reply in ticket channels (non-command messages from non-staff)
+  // ── AI reply in ticket channels (non-command messages from non-staff) ──
   if (message.channel.name?.startsWith("ticket-") && !message.content.startsWith(PREFIX)) {
     const settings  = getGuildSettings(message.guild.id);
     const isStaff   = isAdmin(message.member) || hasPerm(message.member, PermissionFlagsBits.ManageMessages);
@@ -2781,7 +2847,7 @@ client.on("messageCreate", async (message) => {
           try {
             const aiResponse = await callTicketAI(message.channel.id, message.content, ticketType, null);
             if (aiResponse) {
-              await message.channel.send({ content: `-# 🤖 **Snuggles AI**  •  automated reply — staff will follow up shortly\n\n${aiResponse}`, allowedMentions: { users: [] } });
+              await message.channel.send({ content: `-# 🤖 **Snuggles AI**  •  automated reply\n\n${aiResponse}`, allowedMentions: { users: [] } });
             }
           } catch (err) { console.error("[AI] Response failed:", err.message); }
         });
@@ -2864,12 +2930,18 @@ client.on("threadCreate", async (thread) => {
 
     await thread.send({ embeds: [rulesEmbed] });
 
-    // AI greeting for the new thread
+    // AI greeting — fully automated support, no staff required
     if (GROQ_API_KEY) {
-      const aiGreeting = `A new support forum thread has been opened titled: "${thread.name}". Please warmly greet the user, acknowledge that they've opened a support thread, and let them know a staff member will help them soon. Remind them to include any relevant details like error messages or screenshots. Keep it brief and friendly.`;
+      const aiGreeting = [
+        `A new community support thread has just been opened titled: "${thread.name}".`,
+        `You are the fully automated AI support agent for Snuggles Scripting — you handle support completely on your own without needing staff.`,
+        `Warmly greet the user, introduce yourself as the AI support system, let them know you'll do your best to resolve their issue right here,`,
+        `and encourage them to share as much detail as possible (code snippets, error messages, screenshots, what they've already tried).`,
+        `Sound confident, helpful, and friendly. You are not a placeholder — you ARE the support. 💗`,
+      ].join(" ");
       const aiResponse = await callTicketAI(`forum_${thread.id}`, aiGreeting, "inquiry", null);
       if (aiResponse) {
-        await thread.send({ content: `-# 🤖 **Snuggles AI**  •  automated reply — staff will follow up shortly\n\n${aiResponse}`, allowedMentions: { users: [] } });
+        await thread.send({ content: `-# 🤖 **Snuggles AI Support**  •  fully AI-managed\n\n${aiResponse}`, allowedMentions: { users: [] } });
       }
     }
   } catch (err) {
