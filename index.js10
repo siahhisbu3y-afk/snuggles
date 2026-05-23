@@ -2108,7 +2108,7 @@ async function execCommand(cmdName, ctx) {
         if (!title||!desc) return ctx.reply({embeds:[E.warn("Usage: `s!reactionrole panel <title> <description>`")]},true);
         if (ctx.isSlash) await ctx.interaction.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});
         const sent=await ctx.channel.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setTitle(title).setDescription(desc+"\n\n*React below to get a role!*").setFooter({text:`${BOT_NAME} • Reaction Roles`}).setTimestamp()]});
-        return ctx.reply({content:`✅ Panel posted! Run \`s!reactionrole add ${sent.id} <emoji> <@role>\``,..( ctx.isSlash?{flags:MessageFlags.Ephemeral}:{})});
+        return ctx.reply({content:`✅ Panel posted! Run \`s!reactionrole add ${sent.id} <emoji> <@role>\``, ...(ctx.isSlash?{flags:MessageFlags.Ephemeral}:{})});
       }
       return ctx.reply({embeds:[E.warn("Subcommands: `add` `remove` `list` `panel`")]},true);
     }
