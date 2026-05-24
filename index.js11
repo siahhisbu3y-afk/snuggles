@@ -1,6 +1,5 @@
 "use strict";
 try { process.env.FFMPEG_PATH = require("ffmpeg-static"); } catch {}
-
 const fs = require("fs");
 const path = require("path");
 const {
