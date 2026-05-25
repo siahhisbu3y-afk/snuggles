@@ -1,0 +1,1213 @@
+"use strict";
+try { process.env.FFMPEG_PATH = require("ffmpeg-static"); } catch {}
+const fs = require("fs");
+const path = require("path");
+const {
+  Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits,
+  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags,
+  AuditLogEvent, ActivityType, AttachmentBuilder, REST, Routes, SlashCommandBuilder,
+} = require("discord.js");
+require("dotenv").config();
+
+// â”€â”€ ENV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TOKEN     = process.env.DISCORD_TOKEN?.trim()      || "";
+const CLIENT_ID = process.env.CLIENT_ID?.trim()          || "";
+const GEMINI_KEY= process.env.GEMINI_API_KEY?.trim()     || "";
+const STAB_KEY  = process.env.STABILITY_API_KEY?.trim()  || "";
+if (!TOKEN) { console.error("âŒ DISCORD_TOKEN missing"); process.exit(1); }
+
+const ENV = {
+  HOME:   process.env.HOME_GUILD_ID?.trim()            || "",
+  ERR:    process.env.ERROR_CHANNEL_ID?.trim()         || "",
+  LVL:    process.env.LEVELUP_CHANNEL_ID?.trim()       || "",
+  STICKY: process.env.STICKY_CHANNEL_ID?.trim()        || "",
+  ORDER:  process.env.ORDER_CHANNEL_ID?.trim()         || "",
+  FORUM:  process.env.FORUM_SUPPORT_CHANNEL_ID?.trim() || "",
+  PAD:    process.env.PARTNER_AD_CHANNEL_ID?.trim()    || "",
+};
+
+// â”€â”€ CONSTANTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const NAME = "Snuggles Scripting", VER = "11.0.0", OWNER = "Snuggles", FT = `${NAME} v${VER}`;
+const C = {
+  brand:0xFF8FB1, success:0x57F287, warn:0xFEE75C, error:0xED4245,
+  info:0x5865F2,  gold:0xF1C40F,   xp:0x2ECC71,   ai:0x7289DA,
+  img:0xE91E8C,   scam:0xFF0000,   note:0x9B59B6,  mod:0xEB459E,
+  raid:0xFF4757,  nuke:0xFF6B35,   roblox:0x00A2FF,
+};
+const IMG_STYLES = {
+  realistic:"ultra realistic, photographic, 8k, sharp detail",
+  anime:"anime style, vibrant colors, Studio Ghibli inspired",
+  cartoon:"cartoon, colorful, bold outlines, fun style",
+  fantasy:"fantasy art, epic, magical atmosphere, highly detailed",
+  minimal:"minimalist, clean, simple, elegant design",
+  pixel:"pixel art, 16-bit retro game style",
+  oil:"oil painting, impressionist, textured canvas strokes",
+  sketch:"detailed pencil sketch, lineart, black and white",
+};
+const OS = {
+  not_started:       {label:"Not Started",      emoji:"ðŸ”´",color:0xED4245},
+  in_progress:       {label:"In Progress",       emoji:"ðŸ”µ",color:0x5865F2},
+  almost_complete:   {label:"Almost Complete",   emoji:"ðŸŸ ",color:0xFFA500},
+  partially_complete:{label:"Partially Complete",emoji:"ðŸŸ¡",color:0xFEE75C},
+  completed:         {label:"Completed",         emoji:"ðŸŸ¢",color:0x57F287},
+  cancelled:         {label:"Cancelled",         emoji:"âšª",color:0x95A5A6},
+  on_hold:           {label:"On Hold",           emoji:"â¸ï¸",color:0x9B59B6},
+  revision:          {label:"In Revision",       emoji:"ðŸ”„",color:0xF1C40F},
+};
+const SHOP = [
+  {id:"role_color",    name:"Custom Role Color",   price:500, emoji:"ðŸŽ¨",desc:"Request a custom role color â€” staff will apply it."},
+  {id:"code_review",   name:"Code Review Voucher", price:300, emoji:"ðŸ”",desc:"One in-depth code review from our scripting staff."},
+  {id:"priority_queue",name:"Priority Queue",      price:750, emoji:"âš¡",desc:"Your next commission gets bumped to front of queue."},
+  {id:"vip_ping",      name:"VIP Ping Access",     price:1000,emoji:"ðŸ””",desc:"Get pinged for exclusive announcements & early access."},
+  {id:"og_badge",      name:"OG Member Badge",     price:2000,emoji:"ðŸ…",desc:"Exclusive badge marking you as an OG member."},
+  {id:"ai_image",      name:"AI Image Pack",       price:150, emoji:"ðŸ–¼ï¸",desc:"5 free AI-generated images via /imagine."},
+];
+const WORK = [
+  {text:"Debugged a gnarly client script",           r:[80,200]},
+  {text:"Built a full datastore system from scratch",r:[100,250]},
+  {text:"Fixed a critical RemoteEvent security bug", r:[60,150]},
+  {text:"Optimised a client-side UI framework",      r:[50,180]},
+  {text:"Wrote a complete admin command system",     r:[120,280]},
+  {text:"Helped a beginner solve a tricky bug",      r:[30,80]},
+  {text:"Reviewed and refactored legacy Lua code",   r:[90,220]},
+  {text:"Built an advanced matchmaking system",      r:[150,350]},
+  {text:"Created a custom UI component library",     r:[110,260]},
+  {text:"Wrote an anti-exploit detection module",    r:[130,300]},
+];
+const TIPS = [
+  "Use `task.wait()` instead of deprecated `wait()` â€” more accurate and frame-aligned.",
+  "Cache `:GetService()` at the top â€” repeated lookups add up in hot loops.",
+  "Parent UI to `PlayerGui` **after** setting all properties to avoid recalculations.",
+  "RemoteEvents are fire-and-forget; RemoteFunctions **block** the calling thread.",
+  "DataStore writes are rate-limited â€” prefer `:UpdateAsync` over `:SetAsync`.",
+  "**NEVER trust the client.** Validate every RemoteEvent argument server-side.",
+  "Wrap DataStore calls in `pcall`/`xpcall` â€” errors shouldn't crash your game.",
+  "Profile **before** optimising â€” open MicroProfiler (`Ctrl+F6`) and find the bottleneck.",
+  "Use `Vector3.zero` and `Vector3.one` â€” fewer object allocations.",
+  "`:Destroy()` instances when done â€” all connections clean up automatically.",
+];
+const QUOTES = [
+  "Code is poetry â€” write it like someone you respect will read it.",
+  "The best script is the one you can understand six months from now.",
+  "Clean code always beats clever code.",
+  "Every bug is a lesson disguised as frustration.",
+  "Comment the *why*, not the *what*.",
+];
+const BALL = [
+  "It is certain.","Without a doubt.","Yes â€” definitely.","Most likely.","Outlook good.",
+  "Reply hazy, try again.","Ask again later.","Don't count on it.","My reply is no.","Very doubtful.",
+];
+const TRIVIA = [
+  {q:"What Lua function replaces deprecated `wait()` in modern Roblox?",a:["task.wait"],hint:"It's inside the `task` library."},
+  {q:"What does `pcall` stand for?",a:["protected call"],hint:"It prevents crashes on errors."},
+  {q:"Which service handles player data persistence in Roblox?",a:["datastoreservice"],hint:"Use `game:GetService()`."},
+  {q:"What event fires on Players when a player joins?",a:["playeradded"],hint:"It's on the `Players` service."},
+  {q:"What keyword makes a Lua variable local to its scope?",a:["local"],hint:"Best practice for all variables."},
+];
+const DAILY = [
+  {text:"ðŸŽ **Code Review Tip** â€” comment your trickiest function and tag staff!",coins:50},
+  {text:"ðŸŽ **5% Discount Voucher** â€” DM staff with code `SNUGSAVE5`.",coins:75},
+  {text:"ðŸŽ **Priority Queue Token** â€” your next ticket gets a faster response.",coins:100},
+  {text:"ðŸŽ **Double Vibe Day** â€” extra good luck for anything Roblox-related!",coins:80},
+  {text:"ðŸŽ **AI Image Token** â€” use `/imagine` to generate something cool!",coins:55},
+];
+const RULES = [
+  "**1. Be Respectful** â€” No harassment, hate speech, slurs, or personal attacks.",
+  "**2. No Spam** â€” No message spam, mention spam, or unsolicited self-promotion.",
+  "**3. Keep it SFW** â€” No NSFW or inappropriate content of any kind.",
+  "**4. Right Channel** â€” Post in the correct channel for your topic.",
+  "**5. No Scams** â€” No phishing links, scam DMs, or malicious files.",
+  "**6. Follow Staff** â€” Staff decisions are final.",
+  "**7. Discord TOS** â€” Follow Discord's Terms of Service and Community Guidelines.",
+];
+const SERVICES = [
+  {name:"ðŸ› ï¸ Custom Scripts", value:"Gameplay systems, tools, weapons, vehicles, NPCs, and more."},
+  {name:"ðŸ“‹ Commissions",    value:"Full commissioned work â€” from small tweaks to complete game systems."},
+  {name:"âš™ï¸ Game Systems",   value:"Inventory, shop, datastore, leaderboards, matchmaking, admin, anti-exploit."},
+  {name:"ðŸŽ¨ UI / GUIs",      value:"Polished in-game interfaces, menus, HUDs, and custom UI frameworks."},
+  {name:"ðŸ› Debugging Help", value:"Stuck on a bug? Use `s!debug` for a template and post in support."},
+  {name:"ðŸ” Code Reviews",   value:"Professional feedback â€” performance, structure, and best practices."},
+];
+const DOCS = [
+  {name:"ðŸ“– Creator Docs",      value:"https://create.roblox.com/docs"},
+  {name:"ðŸ“š Engine API",        value:"https://create.roblox.com/docs/reference/engine"},
+  {name:"ðŸŒ™ Luau Reference",    value:"https://luau-lang.org/"},
+  {name:"ðŸ’¬ DevForum Scripting",value:"https://devforum.roblox.com/c/help-and-feedback/scripting-support/55"},
+  {name:"âœï¸ Style Guide",       value:"https://roblox.github.io/lua-style-guide/"},
+];
+const SCRIPTS = {
+  ui:{title:"Basic ScreenGui",code:`local Players=game:GetService("Players")
+local player=Players.LocalPlayer
+local gui=Instance.new("ScreenGui",player:WaitForChild("PlayerGui"))
+gui.ResetOnSpawn=false
+local frame=Instance.new("Frame",gui)
+frame.Size=UDim2.fromOffset(260,140)
+frame.Position=UDim2.fromScale(0.5,0.5)
+frame.AnchorPoint=Vector2.new(0.5,0.5)
+frame.BackgroundColor3=Color3.fromRGB(24,24,28)
+Instance.new("UICorner",frame).CornerRadius=UDim.new(0,10)
+local label=Instance.new("TextLabel",frame)
+label.Size=UDim2.fromScale(1,1)
+label.BackgroundTransparency=1
+label.Text="Hello, "..player.Name.."!"
+label.TextColor3=Color3.new(1,1,1)
+label.Font=Enum.Font.GothamBold
+label.TextSize=20`},
+  datastore:{title:"Safe DataStore + Auto-Save",code:`local DSS=game:GetService("DataStoreService")
+local Players=game:GetService("Players")
+local store=DSS:GetDataStore("PlayerData_v1")
+local cache={}
+local function load(p)
+  local ok,d=pcall(store.GetAsync,store,p.UserId)
+  cache[p.UserId]=(ok and d) or {coins=0,level=1}
+end
+local function save(p)
+  local d=cache[p.UserId];if not d then return end
+  local ok,err=pcall(store.SetAsync,store,p.UserId,d)
+  if not ok then warn("[DS] Save failed:",err) end
+end
+Players.PlayerAdded:Connect(load)
+Players.PlayerRemoving:Connect(function(p)save(p);cache[p.UserId]=nil end)
+game:BindToClose(function()for _,p in Players:GetPlayers()do save(p)end end)`},
+  remote:{title:"Secure RemoteEvent Pattern",code:`local RS=game:GetService("ReplicatedStorage")
+local GiveCoins=Instance.new("RemoteEvent",RS)
+GiveCoins.Name="GiveCoins"
+GiveCoins.OnServerEvent:Connect(function(player,amount)
+  amount=math.clamp(tonumber(amount) or 0,0,100)
+  print(player.Name,"received",amount,"coins")
+end)`},
+  movement:{title:"Custom Movement Values",code:`local Players=game:GetService("Players")
+local S={WalkSpeed=24,JumpPower=60}
+local function apply(char)
+  local h=char:WaitForChild("Humanoid")
+  h.WalkSpeed=S.WalkSpeed;h.JumpPower=S.JumpPower;h.UseJumpPower=true
+end
+Players.PlayerAdded:Connect(function(p)
+  if p.Character then apply(p.Character) end
+  p.CharacterAdded:Connect(apply)
+end)`},
+  admin:{title:"Simple Admin Command System",code:`local Players=game:GetService("Players")
+local ADMINS={["YourUsername"]=true}
+local commands={}
+commands.kick=function(src,args)
+  local t=Players:FindFirstChild(args[1] or "")
+  if t then t:Kick("Kicked by admin.") end
+end
+commands.speed=function(src,args)
+  if src.Character then
+    src.Character.Humanoid.WalkSpeed=tonumber(args[1]) or 16
+  end
+end
+Players.PlayerAdded:Connect(function(player)
+  player.Chatted:Connect(function(msg)
+    if not ADMINS[player.Name] then return end
+    if msg:sub(1,1)~="/" then return end
+    local parts=msg:sub(2):split(" ")
+    local fn=commands[parts[1]:lower()]
+    if fn then fn(player,{table.unpack(parts,2)}) end
+  end)
+end)`},
+};
+const PAY_METHODS = [
+  {name:"ðŸ’µ USD Payments",value:"PayPal Friends & Family Â· CashApp Â· Gift Cards"},
+  {name:"ðŸŽ® Robux",value:"Group Payout (buyer pays 30% tax)"},
+  {name:"ðŸ’³ Pricing Guide",value:"Simple scripts: $5â€“25 Â· UI/GUIs: $20â€“60 Â· Full systems: $60â€“250+"},
+];
+const SYS = {
+  partnership:`You are **Snuggles AI** â€” partnership manager for **Snuggles Scripting**, a professional Roblox scripting Discord.
+Tiers: ðŸŒ± Small (45-69) âœ¨ Mid (70-119) ðŸ”¥ Large (120+) â€” minimum 45 members required.
+Payment: USD (PayPal F&F / CashApp), Robux group payout (buyer pays 30% tax), gift cards.
+Tone: Warm, professional, genuine. Reply in ONE complete message. End by asking for their server ad text.`,
+  inquiry:`You are **Snuggles AI** â€” 24/7 support for **Snuggles Scripting**.
+Services: Roblox/Luau scripting â€” game systems, UI, datastores, admin, anti-exploit, matchmaking, weapons, animations.
+Pricing: simple scripts $5-25 â€¢ UI $20-60 â€¢ full systems $60-250+
+Payment: USD (PayPal F&F / CashApp), Robux group payout, gift cards. All sales FINAL â€” no refunds.
+ToS: https://docs.google.com/document/d/13dYCdrmj9mU9jWmEYONExBDnfcwYlQfxR6UJdZRsP28
+Reply in ONE complete message. Be helpful, confident, warm. Returning customers get 5% loyalty discount.`,
+  chat:`You are **Snuggles AI** â€” a smart, friendly assistant in the Snuggles Scripting Discord.
+Help with coding, writing, math, creative projects, analysis, or casual chat.
+Be accurate, concise, and genuinely helpful. Respond in one complete message.`,
+  img:`You are an expert image prompt engineer. Enhance the user's description into a detailed generation prompt.
+Include: subject detail, art style, lighting, mood, colour palette, composition, quality descriptors.
+Keep under 180 words. Output ONLY the enhanced prompt â€” no preamble, no explanation.`,
+};
+
+// â”€â”€ DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const DF = path.join(__dirname, "data.json");
+function dd() {
+  return {
+    nextOrderId:1,nextWarnId:1,nextReviewId:1,nextScamId:1,
+    orders:[],blacklist:[],warns:{},modLogChannels:{},portfolio:[],reviews:[],
+    dailyClaims:{},settings:{},
+    stats:{ticketsOpened:0,ticketsClosed:0,ordersCreated:0,ordersCompleted:0,reviewsSubmitted:0,imagesGenerated:0},
+    leveling:{},economy:{},invites:{},inviteCache:{},stickyMessages:{},triviaActive:{},giveaways:{},
+    antiRaid:{},antiNuke:{},reactionRoles:{},robloxVerified:{},verificationCodes:{},
+    scamReports:[],serverBackups:{},
+  };
+}
+function loadData() {
+  try {
+    if (!fs.existsSync(DF)) return dd();
+    const p=JSON.parse(fs.readFileSync(DF,"utf8")),b=dd(),o={};
+    for (const k of Object.keys(b)) {
+      if (Array.isArray(b[k])) o[k]=Array.isArray(p[k])?p[k]:b[k];
+      else if (b[k]&&typeof b[k]==="object") o[k]=p[k]&&typeof p[k]==="object"?{...b[k],...p[k]}:b[k];
+      else o[k]=p[k]??b[k];
+    }
+    return o;
+  } catch(e) { console.error("data.json load failed:",e.message); return dd(); }
+}
+let _st=null;
+function saveData(){clearTimeout(_st);_st=setTimeout(()=>{try{fs.writeFileSync(DF,JSON.stringify(data,null,2));}catch(e){console.error("Save failed:",e.message);}},500);}
+const data=loadData();
+
+const gS  = gid=>{if(!data.settings[gid])data.settings[gid]={};return data.settings[gid];};
+const gE  = uid=>{if(!data.economy[uid])data.economy[uid]={coins:0,lastCoinAt:0,inventory:[]};return data.economy[uid];};
+const gL  = uid=>{if(!data.leveling[uid])data.leveling[uid]={xp:0,level:1,lastXpAt:0,totalMessages:0};return data.leveling[uid];};
+const gAR = gid=>{if(!data.antiRaid[gid])data.antiRaid[gid]={enabled:false,threshold:8,window:10000,action:"kick",autoUnlock:30000,whitelistedUsers:[],whitelistedRoles:[],notifyChannel:null,dmOnAction:true};return data.antiRaid[gid];};
+const gAN = gid=>{if(!data.antiNuke[gid])data.antiNuke[gid]={enabled:false,banThreshold:5,channelDeleteThreshold:3,roleDeleteThreshold:3,kickThreshold:5,window:10000,action:"ban",trustedRoles:[],trustedUsers:[],notifyChannel:null};return data.antiNuke[gid];};
+
+// â”€â”€ UTILS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const XP_MSG=15,XP_CD=60000,XP_V=10,BASE_XP=100,XP_SC=1.35,COINS_MSG=5,COINS_CD=30000;
+const xpFor = lv=>Math.floor(BASE_XP*Math.pow(XP_SC,lv-1));
+const ri    = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const T     = {s:1000,m:60000,h:3600000,d:86400000};
+function parseDur(s){const m=String(s||"").toLowerCase().trim().match(/^(\d+)\s*(s|m|h|d)?$/);if(!m)return null;const ms=parseInt(m[1])*(T[m[2]||"m"]);return Number.isFinite(ms)&&ms>0?ms:null;}
+function fmtDur(ms){const d=Math.floor(ms/T.d),h=Math.floor((ms%T.d)/T.h),m=Math.floor((ms%T.h)/T.m),s=Math.floor((ms%T.m)/T.s);return[d&&`${d}d`,h&&`${h}h`,m&&`${m}m`,(!d&&!h&&s)?`${s}s`:null].filter(Boolean).join(" ")||"0s";}
+
+const isAdmin = m=>!!(m?.permissions?.has(PermissionFlagsBits.Administrator));
+const isStaff = m=>isAdmin(m)||!!(m?.permissions?.has(PermissionFlagsBits.ManageMessages));
+const hP      = (m,f)=>!!(m?.permissions?.has(f));
+const findOrder  = id=>{const n=Number(id);return Number.isFinite(n)?data.orders.find(o=>o.id===n)||null:null;};
+const hasOrdered = uid=>data.orders.some(o=>o.userId===uid);
+const gOS        = s=>OS[s]||{label:s,emoji:"â“",color:C.brand};
+
+const _cds=new Map();
+const CDS={review:3600000,meme:8000,"8ball":3000,rate:5000,quote:5000,tip:5000,daily:86400000,snippet:5000,dowork:3600000,trivia:5000,coinflip:3000,roll:3000,rps:3000,serverinfo:5000,imagine:30000,verify:300000,reportscammer:60000,ai:3000};
+const chkCD=(c,u)=>{const r=(_cds.get(`${c}:${u}`)||0)-Date.now();return r>0?Math.ceil(r/1000):0;};
+const useCD =(c,u)=>{const ms=CDS[c];if(ms)_cds.set(`${c}:${u}`,Date.now()+ms);};
+
+// â”€â”€ CLIENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const client = new Client({
+  intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildModeration,GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildMessageReactions,GatewayIntentBits.GuildPresences],
+  partials:[Partials.Channel,Partials.GuildMember,Partials.Message,Partials.Reaction],
+});
+
+// â”€â”€ EMBEDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const E = {
+  mk:(col,t)=>new EmbedBuilder().setColor(col).setTitle(t||null),
+  b: t=>new EmbedBuilder().setColor(C.brand).setTitle(t||null),
+  ok:t=>new EmbedBuilder().setColor(C.success).setTitle(t||null),
+  er:t=>new EmbedBuilder().setColor(C.error).setTitle(t||null),
+  w: t=>new EmbedBuilder().setColor(C.warn).setTitle(t||null),
+  i: t=>new EmbedBuilder().setColor(C.info).setTitle(t||null),
+  g: t=>new EmbedBuilder().setColor(C.gold).setTitle(t||null),
+  xp:t=>new EmbedBuilder().setColor(C.xp).setTitle(t||null),
+  mo:t=>new EmbedBuilder().setColor(C.mod).setTitle(t||null),
+  sc:t=>new EmbedBuilder().setColor(C.scam).setTitle(t||null),
+  rb:t=>new EmbedBuilder().setColor(C.roblox).setTitle(t||null),
+};
+const ft  = e=>e.setFooter({text:FT}).setTimestamp();
+const aiE = (text,model,user,type)=>new EmbedBuilder().setColor(C.ai)
+  .setAuthor({name:"Snuggles AI",iconURL:client.user?.displayAvatarURL()})
+  .setDescription(text.length>4000?text.slice(0,3997)+"â€¦":text)
+  .setFooter({text:`${{partnership:"ðŸ¤",inquiry:"ðŸ’¬",forum:"ðŸ“‹",chat:"ðŸ¤–"}[type]||"ðŸ¤–"} ${model||"AI"} Â· ${user}`})
+  .setTimestamp();
+
+async function logMod(guild,emb){const id=data.modLogChannels[guild?.id];if(!id)return;const ch=await guild.channels.fetch(id).catch(()=>null);if(ch?.isTextBased())ch.send({embeds:[emb]}).catch(()=>{});}
+async function errLog(err,ctx=""){try{if(!ENV.HOME||!ENV.ERR)return;const g=client.guilds.cache.get(ENV.HOME);if(!g)return;const ch=await g.channels.fetch(ENV.ERR).catch(()=>null);if(!ch?.isTextBased())return;ch.send({embeds:[E.er("ðŸš¨ Error").addFields({name:"Context",value:ctx||"â€”"},{name:"Error",value:`\`\`\`${String(err?.message||err).slice(0,900)}\`\`\``}).setTimestamp()]});}catch{}}
+async function rep(interaction,payload,eph=false){try{const flags=eph?MessageFlags.Ephemeral:undefined;const opt=typeof payload==="string"?{content:payload,flags}:{...payload,flags};if(interaction.deferred||interaction.replied)return interaction.editReply(opt);return interaction.reply(opt);}catch(e){console.error("[rep]",e.message);}}
+
+// â”€â”€ SLASH COMMANDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function buildSlash(){
+  function o(b,type,name,desc,req,extra){
+    const m={string:"addStringOption",integer:"addIntegerOption",user:"addUserOption",role:"addRoleOption",channel:"addChannelOption"};
+    return b[m[type]](opt=>{
+      opt.setName(name).setDescription(desc);
+      if(req!=null)opt.setRequired(req);
+      if(extra?.min!=null)opt.setMinValue(extra.min);
+      if(extra?.max!=null)opt.setMaxValue(extra.max);
+      if(extra?.choices)opt.addChoices(...extra.choices);
+      return opt;
+    });
+  }
+  const statusChoices=Object.entries(OS).map(([v,s])=>({name:`${s.emoji} ${s.label}`,value:v}));
+  const styleChoices=Object.keys(IMG_STYLES).map(s=>({name:s,value:s}));
+  const scriptChoices=[{name:"UI",value:"ui"},{name:"DataStore",value:"datastore"},{name:"RemoteEvent",value:"remote"},{name:"Movement",value:"movement"},{name:"Admin System",value:"admin"}];
+  const rpsChoices=[{name:"Rock ðŸª¨",value:"rock"},{name:"Paper ðŸ“„",value:"paper"},{name:"Scissors âœ‚ï¸",value:"scissors"}];
+  const actionChoices=[{name:"Kick",value:"kick"},{name:"Ban",value:"ban"},{name:"Alert Only",value:"none"}];
+  const nukeChoices=[{name:"Ban",value:"ban"},{name:"Kick",value:"kick"},{name:"Strip Roles",value:"strip"}];
+
+  const simple=[
+    ["help","ðŸ“– All commands",[["integer","page","Page 1-6",false,{min:1,max:6}]]],
+    ["info","ðŸ§¸ Bot info"],["ping","ðŸ“ Latency"],["status","ðŸŸ¢ Status"],["rules","ðŸ“œ Rules"],
+    ["uptime","â±ï¸ Uptime"],["invite","ðŸ”— Invite bot"],["setup","âš™ï¸ Setup guide"],
+    ["ai","ðŸ¤– Chat with AI",[["string","message","Your message",true]]],
+    ["ai-reset","ðŸ”„ Clear AI history"],
+    ["imagine","ðŸŽ¨ Generate image",[["string","prompt","Describe image",true],["string","style","Art style",false,{choices:styleChoices}]]],
+    ["aioff","ðŸ”‡ Disable AI in ticket"],["aion","ðŸ”Š Enable AI in ticket"],
+    ["services","ðŸ›ï¸ Services"],["prices","ðŸ’³ Pricing"],["pay","ðŸ’¸ Payment links"],
+    ["orderinfo","ðŸ“¦ Check order",[["integer","id","Order ID",true]]],
+    ["discount","ðŸŽŸï¸ Loyalty discount"],["ticket","ðŸŽ« Open ticket"],
+    ["portfolio","ðŸŽ¨ Portfolio",[["integer","page","Page",false]]],
+    ["script","ðŸ“œ Lua scripts",[["string","type","Type",true,{choices:scriptChoices}]]],
+    ["snippet","ðŸ’¡ Random snippet"],["docs","ðŸ“š Docs"],["debug","ðŸ› Bug template"],["tip","ðŸ’¡ Tip"],
+    ["level","ðŸ“Š Check XP",[["user","user","User",false]]],
+    ["rank","ðŸ… Stats card",[["user","user","User",false]]],
+    ["leaderboard","ðŸ† Top 10 XP"],
+    ["balance","ðŸ’° Balance",[["user","user","User",false]]],
+    ["dowork","ðŸ’¼ Earn coins"],["daily","ðŸŽ Daily reward"],["shop","ðŸ›’ Coin shop"],
+    ["buy","ðŸ›ï¸ Buy item",[["string","item","Item ID",true]]],
+    ["review","â­ Submit review",[["integer","rating","1-5 stars",true,{min:1,max:5}],["string","type","Commission type",true],["string","message","Your review",true]]],
+    ["vouch","âœ… Quick vouch",[["string","text","Your vouch",true]]],
+    ["quote","ðŸ’­ Quote"],["meme","ðŸ˜‚ Meme"],
+    ["8ball","ðŸŽ± Magic 8-ball",[["string","question","Your question",true]]],
+    ["rate","ðŸ“Š Rate something",[["string","thing","What to rate",true]]],
+    ["coinflip","ðŸª™ Flip coin"],
+    ["roll","ðŸŽ² Roll dice",[["integer","max","Max value",false,{min:2,max:10000}]]],
+    ["rps","ðŸŽ® Rock paper scissors",[["string","choice","Your pick",true,{choices:rpsChoices}]]],
+    ["trivia","ðŸ§  Scripting trivia"],
+    ["remindme","â° Set reminder",[["string","time","e.g. 10m, 1h",true],["string","message","Reminder message",true]]],
+    ["color","ðŸŽ¨ Preview hex color",[["string","hex","Hex e.g. FF8FB1",true]]],
+    ["calc","ðŸ§® Calculator",[["string","expression","Math expression",true]]],
+    ["userinfo","ðŸ‘¤ User details",[["user","user","User",false]]],
+    ["serverinfo","ðŸ  Server details"],
+    ["avatar","ðŸ–¼ï¸ Get avatar",[["user","user","User",false]]],
+    ["banner","ðŸ–¼ï¸ Get banner",[["user","user","User",false]]],
+    ["servericon","ðŸ–¼ï¸ Server icon"],["stats","ðŸ“ˆ Bot stats"],
+    ["invites","ðŸ“¨ Invite count",[["user","user","User",false]]],
+    ["inviteleaderboard","ðŸ“¨ Top inviters"],
+    ["verify","ðŸŸ£ Link Roblox",[["string","username","Roblox username",true]]],
+    ["checkverify","âœ… Complete verify",[["string","code","Verification code",true]]],
+    ["whois","ðŸ” Roblox lookup",[["user","user","Discord user",false]]],
+    ["unverify","âŒ Unlink Roblox"],
+    ["verifypanel","ðŸŸ£ Post verify panel",[["channel","channel","Channel",true]]],
+    ["reportscammer","ðŸš¨ Report scammer",[["user","user","Scammer",true],["string","evidence","Evidence",true],["string","amount","Amount scammed",false],["string","roblox","Roblox username",false]]],
+    ["scammerlist","ðŸ“‹ Scam reports"],
+    ["setscamchannel","ðŸš¨ Set scam channel",[["channel","channel","Channel",true]]],
+    ["ban","ðŸ”¨ Ban member",[["user","user","User",true],["string","reason","Reason",false],["integer","days","Delete msg days (0-7)",false,{min:0,max:7}]]],
+    ["softban","ðŸ§¹ Softban",[["user","user","User",true],["string","reason","Reason",false]]],
+    ["kick","ðŸ‘¢ Kick member",[["user","user","User",true],["string","reason","Reason",false]]],
+    ["mute","ðŸ”‡ Timeout member",[["user","user","User",true],["string","duration","e.g. 10m, 1h",true],["string","reason","Reason",false]]],
+    ["unmute","ðŸ”Š Remove timeout",[["user","user","User",true]]],
+    ["warn","âš ï¸ Warn member",[["user","user","User",true],["string","reason","Reason",true]]],
+    ["warns","ðŸ“‹ View warnings",[["user","user","User",true]]],
+    ["unwarn","âœ… Remove warning",[["integer","id","Warning ID",true]]],
+    ["clearwarns","ðŸ—‘ï¸ Clear warnings",[["user","user","User",true]]],
+    ["modlogs","ðŸ““ Mod history",[["user","user","User",true]]],
+    ["purge","ðŸ—‘ï¸ Bulk delete",[["integer","count","1-100",true,{min:1,max:100}],["user","user","Filter user",false]]],
+    ["lock","ðŸ”’ Lock channel"],["unlock","ðŸ”“ Unlock channel"],
+    ["slowmode","ðŸ¢ Set slowmode",[["integer","seconds","0-21600",true,{min:0,max:21600}]]],
+    ["nick","âœï¸ Set nickname",[["user","user","User",true],["string","name","New nickname",false]]],
+    ["announce","ðŸ“¢ Announcement",[["string","message","Content",true],["channel","channel","Target channel",false]]],
+    ["say","ðŸ’¬ Send as bot",[["string","message","Message",true]]],
+    ["embed","ðŸ“‹ Custom embed",[["string","title","Title",true],["string","body","Body",true],["string","color","Hex color",false]]],
+    ["poll","ðŸ“Š Create poll",[["string","question","Question",true],["string","options","Options separated by |",true]]],
+    ["giveaway","ðŸŽ‰ Start giveaway",[["string","duration","e.g. 1h, 1d",true],["string","prize","Prize",true],["integer","winners","Winners (default 1)",false,{min:1,max:10}]]],
+    ["addorder","ðŸ“¦ Add order",[["user","user","Customer",true],["string","details","Details",true]]],
+    ["updateorder","ðŸ”„ Update order",[["integer","id","Order ID",true],["string","status","Status",true,{choices:statusChoices}],["string","note","Note",false]]],
+    ["complete","âœ… Mark order complete",[["integer","id","Order ID",true]]],
+    ["blacklist","ðŸš« Toggle blacklist",[["user","user","User",true]]],
+    ["setlog","ðŸ““ Set mod log channel",[["channel","channel","Channel",false]]],
+    ["setreviews","â­ Set reviews channel",[["channel","channel","Channel",false]]],
+    ["settranscripts","ðŸ“„ Set transcripts channel",[["channel","channel","Channel",false]]],
+    ["setverifyrole","ðŸŸ£ Set verify role",[["role","role","Role",true]]],
+    ["setlevelupchannel","ðŸ“Š Set level-up channel",[["channel","channel","Channel",true]]],
+    ["ticketpanel","ðŸŽ« Post ticket panel"],
+    ["close","ðŸ”’ Close ticket",[["string","reason","Reason",true]]],
+    ["addnote","ðŸ“ Add staff note",[["string","text","Note",true]]],
+    ["givecoins","ðŸ’° Give coins",[["user","user","User",true],["integer","amount","Amount",true,{min:1}]]],
+  ];
+
+  const cmds = simple.map(([name,desc,opts])=>{
+    let b=new SlashCommandBuilder().setName(name).setDescription(desc);
+    if(opts)for(const opt of opts)b=o(b,...opt);
+    return b;
+  });
+
+  const rr=new SlashCommandBuilder().setName("reactionrole").setDescription("ðŸŽ­ Reaction roles");
+  rr.addSubcommand(s=>{ let b=s.setName("add").setDescription("Add reaction role"); b=o(b,"string","messageid","Message ID",true); b=o(b,"string","emoji","Emoji",true); b=o(b,"role","role","Role",true); return b; });
+  rr.addSubcommand(s=>{ let b=s.setName("remove").setDescription("Remove reaction role"); b=o(b,"string","messageid","Message ID",true); b=o(b,"string","emoji","Emoji",true); return b; });
+  rr.addSubcommand(s=>s.setName("list").setDescription("List reaction roles"));
+  rr.addSubcommand(s=>{ let b=s.setName("panel").setDescription("Post role panel"); b=o(b,"string","title","Panel title",true); b=o(b,"string","description","Panel description",true); return b; });
+  cmds.push(rr);
+
+  const ar=new SlashCommandBuilder().setName("antiraid").setDescription("ðŸ›¡ï¸ Anti-Raid config");
+  ar.addSubcommand(s=>s.setName("enable").setDescription("Enable anti-raid"));
+  ar.addSubcommand(s=>s.setName("disable").setDescription("Disable anti-raid"));
+  ar.addSubcommand(s=>s.setName("status").setDescription("View settings"));
+  ar.addSubcommand(s=>{ let b=s.setName("config").setDescription("Configure"); b=o(b,"integer","threshold","Joins to trigger",false,{min:2,max:50}); b=o(b,"integer","window","Window seconds",false,{min:3,max:60}); b=o(b,"string","action","Action",false,{choices:actionChoices}); b=o(b,"integer","autounlock","Auto-unlock seconds",false,{min:0,max:3600}); b=o(b,"channel","notify","Notify channel",false); return b; });
+  ar.addSubcommand(s=>o(s.setName("whitelist").setDescription("Exempt a user"),"user","user","User",true));
+  ar.addSubcommand(s=>o(s.setName("unwhitelist").setDescription("Remove exemption"),"user","user","User",true));
+  cmds.push(ar);
+
+  const an=new SlashCommandBuilder().setName("antinuke").setDescription("â˜¢ï¸ Anti-Nuke config");
+  an.addSubcommand(s=>s.setName("enable").setDescription("Enable anti-nuke"));
+  an.addSubcommand(s=>s.setName("disable").setDescription("Disable anti-nuke"));
+  an.addSubcommand(s=>s.setName("status").setDescription("View settings"));
+  an.addSubcommand(s=>{ let b=s.setName("config").setDescription("Configure"); b=o(b,"integer","banth","Ban threshold",false,{min:1,max:20}); b=o(b,"integer","channelth","Channel delete threshold",false,{min:1,max:10}); b=o(b,"integer","roleth","Role delete threshold",false,{min:1,max:10}); b=o(b,"integer","kickth","Kick threshold",false,{min:1,max:20}); b=o(b,"string","action","Action",false,{choices:nukeChoices}); b=o(b,"channel","notify","Notify channel",false); return b; });
+  an.addSubcommand(s=>o(s.setName("trust").setDescription("Trust a user"),"user","user","User",true));
+  an.addSubcommand(s=>o(s.setName("untrust").setDescription("Remove trust"),"user","user","User",true));
+  cmds.push(an);
+
+  const bk=new SlashCommandBuilder().setName("backup").setDescription("ðŸ’¾ Server backup");
+  bk.addSubcommand(s=>s.setName("create").setDescription("Create a backup"));
+  bk.addSubcommand(s=>s.setName("list").setDescription("List saved backups"));
+  bk.addSubcommand(s=>o(s.setName("view").setDescription("View a backup"),"string","id","Backup ID",true));
+  cmds.push(bk);
+
+  return cmds.map(c=>c.toJSON());
+}
+const slashCommands=buildSlash();
+
+async function registerSlash(){
+  if(!CLIENT_ID||!TOKEN)return console.warn("âš ï¸ Skipping slash registration");
+  try{
+    const rest=new REST({version:"10"}).setToken(TOKEN);
+    console.log(`ðŸ“¡ Registering ${slashCommands.length} slash commandsâ€¦`);
+    await rest.put(Routes.applicationCommands(CLIENT_ID),{body:slashCommands});
+    console.log(`âœ… Registered ${slashCommands.length} slash commands`);
+  }catch(e){console.error("Slash registration failed:",e.message);}
+}
+
+// â”€â”€ HELP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function buildHelp(page=1){
+  const icon=client.user?.displayAvatarURL(),auth={name:`${NAME} v${VER}`,iconURL:icon};
+  const ftp=p=>({text:`Page ${p}/6  Â·  ${FT}`}),D="â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€";
+  const pages=[
+    E.b("ðŸ“– Help â€” General & AI").setAuthor(auth).setDescription(`> Prefix: \`s!\`  Â·  Slash: \`/\`  â€” both work!\n${D}`)
+      .addFields(
+        {name:"ðŸŒ  General",value:"`help [page]`  `info`  `ping`  `status`\n`rules`  `uptime`  `invite`  `setup`"},
+        {name:"ðŸ¤–  AI & Images",value:"`ai <message>` â€” Chat with Snuggles AI\n`ai-reset` â€” Wipe conversation history\n`imagine <prompt> [style]` â€” Generate an AI image\n`aioff` / `aion` â€” Toggle AI in ticket *(staff)*\n\n**Styles:** `realistic` `anime` `cartoon` `fantasy` `minimal` `pixel` `oil` `sketch`"},
+        {name:"ðŸ’¼  Commissions",value:"`services`  `prices`  `pay`  `ticket`  `discount`\n`orderinfo <id>`  `portfolio [page]`"},
+      ).setFooter(ftp(1)),
+    E.i("ðŸ“– Help â€” Scripting & Economy").setAuthor(auth).setDescription(D)
+      .addFields(
+        {name:"ðŸ–¥ï¸  Scripting",value:"`script <type>` â€” Example Lua scripts\n  Types: `ui` `datastore` `remote` `movement` `admin`\n`snippet`  `docs`  `debug`  `tip`"},
+        {name:"ðŸ“Š  Leveling",value:"`level [@user]`  `rank [@user]`  `leaderboard`\n`setlevelupchannel <#ch>` *(admin)*"},
+        {name:"ðŸ’°  Economy & Shop",value:"`balance [@user]`  `dowork` *(1h)*  `daily` *(24h)*\n`shop`  `buy <id>`\n\n**Items:** `role_color` 500ðŸª™  `code_review` 300ðŸª™  `priority_queue` 750ðŸª™\n`vip_ping` 1000ðŸª™  `og_badge` 2000ðŸª™  `ai_image` 150ðŸª™"},
+        {name:"â­  Reviews",value:"`review <1-5> <type> <msg>`  `vouch <text>`"},
+      ).setFooter(ftp(2)),
+    E.g("ðŸ“– Help â€” Fun & Info").setAuthor(auth).setDescription(D)
+      .addFields(
+        {name:"ðŸŽ®  Fun & Games",value:"`8ball <q>`  `quote`  `meme`  `rate <thing>`\n`coinflip`  `roll [max]`  `rps <choice>`\n`trivia` â€” Win ðŸª™!  `remindme <time> <msg>`\n`color <hex>`  `calc <expr>`"},
+        {name:"â„¹ï¸  Information",value:"`userinfo [@user]`  `serverinfo`  `avatar [@user]`\n`banner [@user]`  `servericon`  `stats`\n`invites [@user]`  `inviteleaderboard`"},
+        {name:"ðŸŸ£  Roblox Verification",value:"`verify <username>` â€” Start account linking\n`checkverify <code>` â€” Complete verification\n`whois [@user]` â€” View Roblox profile\n`unverify` â€” Unlink account\n`verifypanel <#ch>` â€” Post panel *(admin)*"},
+      ).setFooter(ftp(3)),
+    E.mk(C.error,"ðŸ“– Help â€” Moderation & Admin").setAuthor(auth).setDescription(D)
+      .addFields(
+        {name:"ðŸ”¨  Moderation *(Manage Messages+)*",value:"`ban <@user> [reason] [days]`  `softban <@user>`\n`kick <@user>`  `mute <@user> <time>`  `unmute <@user>`\n`warn <@user> <reason>`  `warns`  `unwarn <id>`  `clearwarns`\n`modlogs <@user>`  `purge <count> [@user]`\n`lock`  `unlock`  `slowmode <s>`  `nick <@user> [name]`"},
+        {name:"âš™ï¸  Admin *(Administrator)*",value:"`announce`  `say`  `embed`  `poll`  `giveaway`\n`ticketpanel`  `close <reason>`  `addnote <text>`\n`addorder`  `updateorder`  `complete`  `blacklist`  `givecoins`\n`setlog`  `setreviews`  `settranscripts`  `setverifyrole`\n`setscamchannel`  `setlevelupchannel`"},
+        {name:"ðŸš¨  Scam Reports *(Staff)*",value:"`reportscammer <@user> <evidence>`  `scammerlist`"},
+        {name:"ðŸ’¾  Backups *(Admin)*",value:"`backup create`  `backup list`  `backup view <id>`"},
+      ).setFooter(ftp(4)),
+    E.mk(C.mod,"ðŸ“– Help â€” Security").setAuthor(auth).setDescription(D)
+      .addFields(
+        {name:"ðŸ›¡ï¸  Anti-Raid *(Admin)*",value:"`antiraid enable / disable / status`\n`antiraid config [threshold] [window] [action] [autounlock] [#notify]`\n  `threshold` â€” Joins to trigger *(default 8)*\n  `window` â€” Detection window sec *(default 10)*\n  `action` â€” `kick` Â· `ban` Â· `none`\n`antiraid whitelist / unwhitelist <@user>`"},
+        {name:"â˜¢ï¸  Anti-Nuke *(Admin)*",value:"`antinuke enable / disable / status`\n`antinuke config [banth] [channelth] [roleth] [kickth] [action] [#notify]`\n  `banth` â€” Ban threshold *(default 5)*\n  `channelth` â€” Channel deletion threshold *(default 3)*\n  `action` â€” `ban` Â· `kick` Â· `strip`\n`antinuke trust / untrust <@user>`"},
+        {name:"ðŸŽ­  Reaction Roles *(Manage Roles)*",value:"`reactionrole add <msgID> <emoji> <@role>`\n`reactionrole remove <msgID> <emoji>`\n`reactionrole list`  `reactionrole panel <title> <desc>`"},
+      ).setFooter(ftp(5)),
+    E.mk(C.note,"ðŸ“– Help â€” Tickets & Setup").setAuthor(auth).setDescription(D)
+      .addFields(
+        {name:"ðŸŽ«  Ticket System",value:"Post panel with `ticketpanel` â€” members choose:\n  ðŸ“¦ **Order** â€” Commission work *(staff reviewed)*\n  ðŸ¤ **Partnership** â€” Partner with us *(AI, 45+ members)*\n  â“ **Inquiry** â€” Support & questions *(AI 24/7)*\n\n**In-ticket:** `close <reason>`  `addnote <text>`  `aioff`  `aion`"},
+        {name:"âš™ï¸  Quick Setup",value:"`setup` â€” Full setup guide\n`ticketpanel` â€” Post support panel\n`setlog / setreviews / settranscripts`\n`setverifyrole`  `setlevelupchannel`  `setscamchannel`"},
+      ).setFooter(ftp(6)),
+  ];
+  const p=Math.max(1,Math.min(page,pages.length));
+  return pages[p-1];
+}
+
+// â”€â”€ AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const tConvos=new Map(),tAIOff=new Set(),pAwaitAd=new Map(),aiCD=new Map(),uChat=new Map();
+// Processing lock â€” prevents double AI responses in the same channel
+const aiProcessing=new Set();
+
+async function callGemini(messages,system,opts={}){
+  if(!GEMINI_KEY)return{text:null,model:null};
+  try{
+    const contents=messages.map(m=>({
+      role:m.role==="assistant"?"model":m.role,
+      parts:[{text:m.content}],
+    }));
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        system_instruction:{parts:[{text:system}]},
+        contents,
+        generationConfig:{maxOutputTokens:opts.maxTokens||800,temperature:opts.temp??0.7},
+      }),
+    });
+    if(!res.ok){const err=await res.text().catch(()=>"");console.error(`[Gemini] ${res.status}`,err.slice(0,200));return{text:null,model:null};}
+    const j=await res.json();
+    const text=j.candidates?.[0]?.content?.parts?.[0]?.text?.trim()||null;
+    return{text,model:"Gemini 1.5 Flash"};
+  }catch(e){console.error("[Gemini]",e.message);return{text:null,model:null};}
+}
+
+async function callTicketAI(chId,msg,type,ctx){
+  if(!tConvos.has(chId))tConvos.set(chId,[]);
+  const h=tConvos.get(chId);h.push({role:"user",content:msg});
+  while(h.length>20)h.shift();
+  const sys=(SYS[type]||SYS.inquiry)+(ctx?`\n\n## Ticket Form\n${ctx}`:"")+"\n\nIMPORTANT: Respond in ONE complete message.";
+  const r=await callGemini(h,sys,{maxTokens:900});
+  if(r.text)h.push({role:"assistant",content:r.text});
+  return r;
+}
+
+async function enhancePrompt(raw){
+  const{text}=await callGemini([{role:"user",content:`Enhance this image prompt: "${raw}"`}],SYS.img,{maxTokens:220,temp:0.8});
+  return text||raw;
+}
+
+async function generateImage(prompt,style){
+  const full=style?`${prompt}, ${IMG_STYLES[style]||""}`:prompt;
+  if(STAB_KEY){
+    try{
+      const res=await fetch("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",{
+        method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${STAB_KEY}`,"Accept":"application/json"},
+        body:JSON.stringify({text_prompts:[{text:full,weight:1},{text:"blurry, bad quality, distorted, nsfw, ugly",weight:-1}],cfg_scale:7,height:1024,width:1024,steps:30,samples:1}),
+      });
+      if(res.ok){const j=await res.json(),b64=j.artifacts?.[0]?.base64;if(b64)return{buffer:Buffer.from(b64,"base64"),ext:"png",source:"Stability AI SDXL"};}
+    }catch(e){console.warn("[ImgGen] Stability failed:",e.message);}
+  }
+  const url=`https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=1024&height=1024&nologo=true&seed=${ri(0,999999)}&enhance=true`;
+  const res=await fetch(url);if(!res.ok)throw new Error(`Pollinations error: ${res.status}`);
+  return{buffer:Buffer.from(await res.arrayBuffer()),ext:"png",source:"Pollinations AI"};
+}
+
+// â”€â”€ ROBLOX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function fetchRxUser(username){try{const r=await fetch("https://users.roblox.com/v1/usernames/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usernames:[username],excludeBannedUsers:false})});if(!r.ok)return null;return(await r.json()).data?.[0]||null;}catch{return null;}}
+async function fetchRxProfile(uid){try{const[ur,sr]=await Promise.all([fetch(`https://users.roblox.com/v1/users/${uid}`),fetch(`https://friends.roblox.com/v1/users/${uid}/friends/count`).catch(()=>null)]);const u=ur.ok?await ur.json():null,st=sr?.ok?await sr.json():null;if(!u)return null;return{id:u.id,name:u.name,displayName:u.displayName,description:u.description||"",created:u.created,isBanned:u.isBanned,friendCount:st?.count??null};}catch{return null;}}
+async function fetchRxAvatar(uid){try{const r=await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${uid}&size=150x150&format=Png`);if(!r.ok)return null;return(await r.json()).data?.[0]?.imageUrl||null;}catch{return null;}}
+const genCode=()=>"SNUG-"+Math.random().toString(36).substring(2,8).toUpperCase();
+
+// â”€â”€ STATUS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const STA=[n=>({name:`${n} server${n!==1?"s":""} ðŸ’—`,type:ActivityType.Watching}),_=>({name:`s!help â€¢ ${NAME}`,type:ActivityType.Playing}),_=>({name:"commissions open! ðŸ’—",type:ActivityType.Playing}),_=>({name:`${Object.keys(data.robloxVerified).length} verified scripters`,type:ActivityType.Watching})];
+let _si=0;
+const updStat=()=>{const n=client.guilds.cache.size,s=STA[_si++%STA.length](n);client.user?.setActivity(s.name,{type:s.type});};
+
+// â”€â”€ ANTI-RAID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const raidT=new Map(),nukeT=new Map();
+
+async function handleRaidJoin(member){
+  const s=gAR(member.guild.id);if(!s.enabled)return;
+  if(s.whitelistedUsers?.includes(member.id))return;
+  if(s.whitelistedRoles?.some(r=>member.roles.cache.has(r)))return;
+  if(!raidT.has(member.guild.id))raidT.set(member.guild.id,{joins:[],locked:false,actioned:new Set()});
+  const t=raidT.get(member.guild.id),now=Date.now();
+  t.joins=t.joins.filter(j=>now-j<s.window);t.joins.push(now);
+  if(t.joins.length>=s.threshold&&!t.locked){
+    t.locked=true;
+    if(s.notifyChannel){const ch=await member.guild.channels.fetch(s.notifyChannel).catch(()=>null);if(ch?.isTextBased())ch.send({embeds:[E.mk(C.raid,"ðŸ›¡ï¸ RAID DETECTED").setDescription(`> **${t.joins.length}** joins in **${s.window/1000}s**\n> **Action:** ${s.action.toUpperCase()}\n> **Auto-Unlock:** ${s.autoUnlock?fmtDur(s.autoUnlock):"Manual"}`).setTimestamp()]}).catch(()=>{});}
+    if(s.autoUnlock>0)setTimeout(()=>{const tr=raidT.get(member.guild.id);if(tr){tr.locked=false;tr.actioned.clear();}},s.autoUnlock);
+  }
+  if(t.locked&&s.action!=="none"&&!t.actioned.has(member.id)){
+    t.actioned.add(member.id);
+    if(s.dmOnAction)member.user.send({content:`ðŸ›¡ï¸ You were **${s.action==="ban"?"banned":"kicked"}** from **${member.guild.name}** â€” anti-raid triggered. Contact staff if this was an error.`}).catch(()=>{});
+    if(s.action==="ban")member.ban({reason:"Anti-Raid"}).catch(()=>{});
+    if(s.action==="kick")member.kick("Anti-Raid").catch(()=>{});
+  }
+}
+
+async function checkNuke(guild,userId,type){
+  const s=gAN(guild.id);if(!s.enabled||userId===client.user?.id)return;
+  if(s.trustedUsers?.includes(userId))return;
+  const key=`${guild.id}:${userId}`;
+  if(!nukeT.has(key))nukeT.set(key,{channelDeletes:[],bans:[],roleDeletes:[],kicks:[]});
+  const t=nukeT.get(key),now=Date.now();
+  const MAP={channelDelete:{arr:"channelDeletes",th:s.channelDeleteThreshold,label:"channel deletions"},ban:{arr:"bans",th:s.banThreshold,label:"bans"},roleDelete:{arr:"roleDeletes",th:s.roleDeleteThreshold,label:"role deletions"},kick:{arr:"kicks",th:s.kickThreshold,label:"kicks"}};
+  const cfg=MAP[type];if(!cfg)return;
+  t[cfg.arr]=t[cfg.arr].filter(x=>now-x<s.window);t[cfg.arr].push(now);
+  if(t[cfg.arr].length>=cfg.th){t[cfg.arr]=[];await triggerNuke(guild,userId,`${cfg.th} ${cfg.label} in ${s.window/1000}s`,s);}
+}
+
+async function triggerNuke(guild,userId,reason,s){
+  const member=await guild.members.fetch(userId).catch(()=>null);if(!member)return;
+  if(member.permissions.has(PermissionFlagsBits.Administrator))return;
+  if(s.trustedRoles?.some(r=>member.roles.cache.has(r)))return;
+  try{if(s.action==="ban")await member.ban({reason:`Anti-Nuke: ${reason}`});if(s.action==="kick")await member.kick(`Anti-Nuke: ${reason}`);if(s.action==="strip")await member.roles.set([],`Anti-Nuke: ${reason}`).catch(()=>{});member.user.send({content:`ðŸš¨ Anti-Nuke triggered in **${guild.name}** â€” Action: **${s.action}** â€” Reason: ${reason}`}).catch(()=>{});}catch{}
+  if(s.notifyChannel){const ch=await guild.channels.fetch(s.notifyChannel).catch(()=>null);if(ch?.isTextBased())ch.send({embeds:[E.mk(C.nuke,"â˜¢ï¸ ANTI-NUKE TRIGGERED").addFields({name:"ðŸ‘¤ User",value:`<@${userId}> (${member.user.tag})`,inline:true},{name:"âš¡ Action",value:s.action.toUpperCase(),inline:true},{name:"ðŸ“‹ Reason",value:reason}).setTimestamp()]}).catch(()=>{});}
+}
+
+// â”€â”€ TICKET PANELS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function buildTicketPanel(){
+  const emb=E.b(`ðŸ§¸ ${NAME} â€” Support Center`).setDescription(["> Choose your ticket type below to get started.","","ðŸ“¦ **Order** â€” Commission a custom Lua script or game system","ðŸ¤ **Partnership** â€” Partner your server with ours *(45+ members, AI handled)*","â“ **Inquiry** â€” Questions, pricing, or general support *(AI 24/7)*","","*Powered by Snuggles AI â€” instant responses anytime!* ðŸ’—"].join("\n")).setFooter({text:`${NAME} v${VER} Â· AI-Powered Support`}).setTimestamp();
+  const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("ticket_order").setLabel("Order").setStyle(ButtonStyle.Primary).setEmoji("ðŸ“¦"),new ButtonBuilder().setCustomId("ticket_partner").setLabel("Partnership").setStyle(ButtonStyle.Success).setEmoji("ðŸ¤"),new ButtonBuilder().setCustomId("ticket_inquiry").setLabel("Inquiry").setStyle(ButtonStyle.Secondary).setEmoji("â“"));
+  return{emb,row};
+}
+
+function buildVerifyPanel(){
+  const emb=E.rb("ðŸŸ£ Roblox Account Verification").setDescription(["Link your Roblox account to get your server nickname updated and receive the verified role.","","**1ï¸âƒ£  Start** â€” Click the button below and enter your Roblox username","**2ï¸âƒ£  Add Code** â€” Paste the code into your [Roblox bio](https://www.roblox.com/my/account) â†’ **About** tab","**3ï¸âƒ£  Confirm** â€” Run `/checkverify <code>` and you're done!","","*Your nickname will automatically update to your Roblox display name.* ðŸŸ£"].join("\n")).setFooter({text:`${NAME} Â· Roblox Verification`}).setTimestamp();
+  const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("verify_start").setLabel("Verify Roblox Account").setStyle(ButtonStyle.Primary).setEmoji("ðŸŸ£"));
+  return{emb,row};
+}
+
+// â”€â”€ OPEN TICKET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function openTicket(guild,member,type,answers){
+  if(!guild||!member)return{ok:false,error:"Must be used in a server."};
+  const s=gS(guild.id);
+  const safeName=member.user.username.toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,16)||"user";
+  let chanName=`ticket-${safeName}`;
+  const maxOpen=s.maxOpenTickets||1;
+  const existing=guild.channels.cache.filter(c=>c.type===ChannelType.GuildText&&c.name.startsWith("ticket-")&&c.permissionOverwrites.cache.has(member.id));
+  if(existing.size>=maxOpen)return{ok:false,error:`You already have **${existing.size}** open ticket(s). Max is **${maxOpen}**.`};
+  if(guild.channels.cache.find(c=>c.name===chanName))chanName+=`-${Date.now().toString(36).slice(-4)}`;
+  const staffRoles=s.ticketStaffRoles||[];
+  const ow=[
+    {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+    {id:member.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]},
+    {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ReadMessageHistory]},
+  ];
+  for(const r of staffRoles)ow.push({id:r,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.ManageMessages]});
+  guild.roles.cache.forEach(r=>{if(r.permissions.has(PermissionFlagsBits.ManageMessages)&&!r.managed&&!staffRoles.includes(r.id))ow.push({id:r.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]});});
+  let created;
+  try{created=await guild.channels.create({name:chanName,type:ChannelType.GuildText,topic:`[${type}] ${member.user.tag}`,permissionOverwrites:ow,parent:s.ticketCategoryId||undefined,reason:`Ticket by ${member.user.tag}`});}
+  catch{return{ok:false,error:"Failed to create channel â€” check **Manage Channels** permission."};}
+  data.stats.ticketsOpened=(data.stats.ticketsOpened||0)+1;saveData();
+  const closeRow=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("ticket_close_btn").setLabel("Close Ticket").setStyle(ButtonStyle.Danger).setEmoji("ðŸ”’"));
+  let emb,ctx="";
+  if(type==="order"){
+    ctx=`Roblox: ${answers.username}\nService: ${answers.service}\nDesc: ${answers.description}\nBudget: ${answers.budget}\nPayment: ${answers.payment}`;
+    emb=E.b("ðŸ“¦ New Commission Order").setDescription(`> Welcome <@${member.id}>! Staff will review your order shortly.${hasOrdered(member.id)?"\n> ðŸŽŸï¸ **Returning customer â€” 5% loyalty discount!**":""}`)
+      .addFields({name:"ðŸ‘¤ Roblox Username",value:answers.username||"â€”",inline:true},{name:"ðŸ› ï¸ Service Type",value:answers.service||"â€”",inline:true},{name:"ðŸ’³ Payment Method",value:answers.payment||"â€”",inline:true},{name:"ðŸ’° Budget",value:answers.budget||"â€”",inline:true},{name:"ðŸ“ Description",value:answers.description||"â€”"})
+      .setFooter({text:`Order Â· ${member.user.tag}`}).setTimestamp();
+  }else if(type==="partnership"){
+    ctx=`Server: ${answers.serverName}\nInvite: ${answers.invite}\nMembers: ${answers.memberCount}\nFocus: ${answers.focus}\nOffering: ${answers.offering}`;
+    emb=E.ok("ðŸ¤ Partnership Request").addFields({name:"ðŸ  Server Name",value:answers.serverName||"â€”",inline:true},{name:"ðŸ‘¥ Member Count",value:answers.memberCount||"â€”",inline:true},{name:"ðŸŽ¯ Server Focus",value:answers.focus||"â€”",inline:true},{name:"ðŸ”— Invite Link",value:answers.invite||"â€”"},{name:"ðŸ¤ What You Offer",value:answers.offering||"â€”"})
+      .setFooter({text:`Partnership Â· ${member.user.tag}`}).setTimestamp();
+  }else{
+    ctx=`Name: ${answers.name}\nTopic: ${answers.topic}\nDetails: ${answers.details}\nUrgency: ${answers.urgency||"Not specified"}`;
+    emb=E.i("â“ Support Inquiry").addFields({name:"ðŸ‘¤ Name",value:answers.name||"â€”",inline:true},{name:"â“ Topic",value:answers.topic||"â€”",inline:true},{name:"âš¡ Urgency",value:answers.urgency||"Not specified",inline:true},{name:"ðŸ“ Details",value:answers.details||"â€”"})
+      .setFooter({text:`Inquiry Â· ${member.user.tag}`}).setTimestamp();
+  }
+  await created.send({content:`<@${member.id}> Welcome to your ticket!${s.ticketGreeting?"\n> "+s.ticketGreeting:""}`,embeds:[emb],components:[closeRow]});
+  if(type!=="order"){
+    setImmediate(async()=>{
+      try{
+        if(type==="partnership"){
+          const count=parseInt(String(answers.memberCount||"0").replace(/,/g,"").match(/\d+/)?.[0]||"0",10);
+          if(count>0&&count<45){await created.send({embeds:[E.er("âŒ Partnership Requirement Not Met").setDescription(`We require a minimum of **45 members**. You currently have **${count}**.\n\nFeel free to re-apply once you've grown! ðŸŒ¸`).setFooter({text:"Re-apply anytime!"}).setTimestamp()]});setTimeout(()=>created.delete("Partnership declined").catch(()=>{}),15000);return;}
+          pAwaitAd.set(created.id,{member,answers,count});
+        }
+        const prompt=type==="partnership"?`New partnership. ${ctx}\nMember count meets 45 minimum. Greet them and ask for their server ad.`:`New inquiry.\n${ctx}\nRespond helpfully.`;
+        const{text,model}=await callTicketAI(created.id,prompt,type,ctx);
+        if(text)await created.send({embeds:[aiE(text,model,member.user.username,type)]});
+      }catch(e){console.error("[TicketAI]",e.message);}
+    });
+  }
+  return{ok:true,channel:created};
+}
+
+// â”€â”€ CLOSE TICKET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function closeTicket(channel,closer,reason,guild){
+  let ownerId=null;for(const[id,o]of channel.permissionOverwrites.cache){if(o.type===1){ownerId=id;break;}}
+  const msgs=[];let lastId;
+  for(let i=0;i<10;i++){const b=await channel.messages.fetch({limit:100,...(lastId?{before:lastId}:{})}).catch(()=>null);if(!b?.size)break;msgs.push(...b.values());lastId=b.last().id;if(b.size<100)break;}
+  msgs.sort((a,b)=>a.createdTimestamp-b.createdTimestamp);
+  const tr=[`Transcript: #${channel.name}`,`Server: ${guild.name}`,`Closed by: ${closer.user?.tag||closer.tag||"â€”"}`,`Reason: ${reason}`,`Messages: ${msgs.length}`,`Date: ${new Date().toISOString()}`,"â”€".repeat(50),"",
+    ...msgs.map(m=>`[${new Date(m.createdTimestamp).toISOString()}] ${m.author.tag}: ${m.content||"[no text]"}${m.embeds.length?` [${m.embeds.length} embed]`:""}`)].join("\n");
+  const file={attachment:Buffer.from(tr,"utf8"),name:`${channel.name}-transcript.txt`};
+  const st=gS(guild.id);const tcId=st.transcriptsChannelId||data.modLogChannels[guild.id];
+  if(tcId){const tc=await guild.channels.fetch(tcId).catch(()=>null);if(tc?.isTextBased())tc.send({embeds:[E.b("ðŸŽŸï¸ Ticket Closed").addFields({name:"Channel",value:`#${channel.name}`},{name:"Closed By",value:closer.user?.tag||closer.tag||"â€”",inline:true},{name:"Reason",value:reason,inline:true}).setTimestamp()],files:[file]}).catch(()=>{});}
+  if(ownerId){try{const u=await client.users.fetch(ownerId);u.send({embeds:[E.b("ðŸŽŸï¸ Ticket Closed").setDescription(`**#${channel.name}** has been closed.\n**Reason:** ${reason}`)],files:[{attachment:Buffer.from(tr,"utf8"),name:`${channel.name}-transcript.txt`}]});}catch{}}
+  tConvos.delete(channel.id);tAIOff.delete(channel.id);pAwaitAd.delete(channel.id);aiProcessing.delete(channel.id);
+  data.stats.ticketsClosed=(data.stats.ticketsClosed||0)+1;saveData();
+  await channel.send({embeds:[E.w("ðŸ”’ Closing in 5 secondsâ€¦").setDescription(`**Reason:** ${reason}`)]}).catch(()=>{});
+  setTimeout(()=>channel.delete(`Ticket closed: ${reason}`).catch(()=>{}),5000);
+}
+
+// â”€â”€ ORDER BOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function updateOrderBoard(){
+  if(!ENV.HOME||!ENV.ORDER)return;
+  try{
+    const g=client.guilds.cache.get(ENV.HOME);if(!g)return;
+    const ch=await g.channels.fetch(ENV.ORDER).catch(()=>null);if(!ch?.isTextBased())return;
+    const active=data.orders.filter(o=>o.status!=="completed"&&o.status!=="cancelled");
+    const done=data.orders.filter(o=>o.status==="completed"&&Date.now()-new Date(o.updatedAt).getTime()<86400000);
+    const emb=E.b("ðŸ“‹ Commission Order Board").setDescription(`Updated <t:${Math.floor(Date.now()/1000)}:R> â€” **${active.length}** active Â· **${done.length}** completed today`).setFooter({text:`${NAME} Â· Auto-updates every 3 hours`}).setTimestamp();
+    if(!active.length)emb.addFields({name:"âœ… Queue Clear",value:"No active orders right now!"});
+    else for(const o of active.slice(0,10)){const si=gOS(o.status);emb.addFields({name:`${si.emoji} ${si.label} â€” #${o.id}`,value:`<@${o.userId}> Â· Updated <t:${Math.floor(new Date(o.updatedAt).getTime()/1000)}:R>\n\`${o.details.slice(0,80)}${o.details.length>80?"â€¦":""}\``});}
+    if(active.length>10)emb.addFields({name:`+${active.length-10} more`,value:"Use `/orderinfo <id>` to check any order."});
+    const st=gS(ENV.HOME);
+    if(st.orderBoardMsgId)try{await ch.messages.delete(st.orderBoardMsgId);}catch{}
+    const sent=await ch.send({embeds:[emb]});st.orderBoardMsgId=sent.id;saveData();
+  }catch{}
+}
+
+// â”€â”€ REACTION ROLES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function handleRR(reaction,user,add){
+  try{if(user.bot)return;const guild=reaction.message.guild;if(!guild)return;const gRR=data.reactionRoles[guild.id];if(!gRR)return;const msgRR=gRR[reaction.message.id];if(!msgRR)return;const emoji=reaction.emoji.id?`<:${reaction.emoji.name}:${reaction.emoji.id}>`:reaction.emoji.name;const roleId=msgRR[emoji]||msgRR[reaction.emoji.name];if(!roleId)return;const member=await guild.members.fetch(user.id).catch(()=>null);if(!member)return;const role=guild.roles.cache.get(roleId);if(!role)return;if(add)await member.roles.add(role,"Reaction Role").catch(()=>{});else await member.roles.remove(role,"Reaction Role").catch(()=>{});}catch(e){console.error("[RR]",e.message);}
+}
+
+// â”€â”€ LEVELING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function grantXP(msg){
+  const lv=gL(msg.author.id),now=Date.now();
+  if(now-lv.lastXpAt<XP_CD)return;
+  lv.lastXpAt=now;lv.totalMessages=(lv.totalMessages||0)+1;
+  lv.xp+=Math.max(1,XP_MSG+ri(-XP_V,XP_V));
+  const needed=xpFor(lv.level);
+  if(lv.xp>=needed){
+    lv.xp-=needed;lv.level++;saveData();
+    const s=gS(msg.guild.id),lvChId=s.levelUpChannelId||ENV.LVL;if(!lvChId)return;
+    const ch=msg.guild?.channels.cache.get(lvChId)||msg.channel;
+    ch.send({content:`<@${msg.author.id}>`,embeds:[E.xp("ðŸŽ‰ Level Up!").setDescription(`Congrats <@${msg.author.id}>! You reached **Level ${lv.level}** ðŸš€`).setThumbnail(msg.author.displayAvatarURL()).addFields({name:"â­ Next Level",value:`${xpFor(lv.level)} XP needed`,inline:true}).setFooter({text:FT}).setTimestamp()]}).catch(()=>{});
+  }else saveData();
+}
+async function grantCoins(msg){const eco=gE(msg.author.id),now=Date.now();if(now-eco.lastCoinAt<COINS_CD)return;eco.lastCoinAt=now;eco.coins=(eco.coins||0)+COINS_MSG;saveData();}
+async function cacheInvites(guild){try{const inv=await guild.invites.fetch();if(!data.inviteCache[guild.id])data.inviteCache[guild.id]={};inv.forEach(i=>{data.inviteCache[guild.id][i.code]=i.uses||0;});}catch{}}
+
+// â”€â”€ STICKY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function refreshSticky(channel){
+  if(!ENV.STICKY||channel.id!==ENV.STICKY)return;
+  const prev=data.stickyMessages[channel.id];if(prev)try{await channel.messages.delete(prev);}catch{}
+  const sent=await channel.send({embeds:[E.b().setDescription("âœ¨ **Enjoying our services?**\n\nLeave a review with `/review <1-5> <type> <message>` â€” your feedback means everything to us! ðŸ’—").setFooter({text:`${FT} Â· Sticky`})]}).catch(()=>null);
+  if(sent){data.stickyMessages[channel.id]=sent.id;saveData();}
+}
+
+// â”€â”€ GIVEAWAYS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function checkGiveaways(){
+  const now=Date.now();
+  for(const[msgId,ga]of Object.entries(data.giveaways)){
+    if(ga.ended||ga.endAt>now)continue;ga.ended=true;saveData();
+    try{
+      const g=client.guilds.cache.get(ga.guildId);if(!g)continue;
+      const ch=await g.channels.fetch(ga.channelId).catch(()=>null);if(!ch)continue;
+      const msg=await ch.messages.fetch(msgId).catch(()=>null);if(!msg)continue;
+      const rxn=msg.reactions.cache.get("ðŸŽ‰");let entrants=[];
+      if(rxn){let last;while(true){const b=await rxn.users.fetch({limit:100,...(last?{after:last}:{})}).catch(()=>null);if(!b?.size)break;entrants.push(...b.filter(u=>!u.bot).map(u=>u.id));if(b.size<100)break;last=b.last().id;}}
+      const winners=Math.min(ga.winners||1,entrants.length);
+      if(!entrants.length){await ch.send({embeds:[E.w("ðŸŽ‰ Giveaway Ended").setDescription(`**${ga.prize}** â€” No valid entries.`).setTimestamp()]});continue;}
+      const picked=[],pool=[...entrants];for(let i=0;i<winners;i++){const idx=Math.floor(Math.random()*pool.length);picked.push(pool.splice(idx,1)[0]);}
+      await ch.send({content:picked.map(id=>`<@${id}>`).join(" "),embeds:[E.ok("ðŸŽ‰ Giveaway â€” Winner(s)!").addFields({name:"ðŸŽ Prize",value:ga.prize},{name:"ðŸ† Winner(s)",value:picked.map(id=>`<@${id}>`).join(", ")},{name:"ðŸ“Š Entries",value:`${entrants.length}`}).setFooter({text:FT}).setTimestamp()],allowedMentions:{users:picked}});
+    }catch{}
+  }
+}
+
+// â”€â”€ SERVER BACKUP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function createBackup(guild){
+  const bk={id:`backup-${Date.now()}`,name:guild.name,icon:guild.iconURL(),createdAt:new Date().toISOString(),channels:[],roles:[],settings:gS(guild.id)};
+  guild.channels.cache.forEach(ch=>{bk.channels.push({name:ch.name,type:ch.type,position:ch.rawPosition,topic:ch.topic||null,parent:ch.parentId||null,nsfw:ch.nsfw||false,rateLimitPerUser:ch.rateLimitPerUser||0});});
+  guild.roles.cache.filter(r=>!r.managed&&r.id!==guild.id).forEach(r=>{bk.roles.push({name:r.name,color:r.color,hoist:r.hoist,position:r.position,permissions:r.permissions.bitfield.toString(),mentionable:r.mentionable});});
+  if(!data.serverBackups[guild.id])data.serverBackups[guild.id]=[];
+  data.serverBackups[guild.id].push(bk);
+  if(data.serverBackups[guild.id].length>5)data.serverBackups[guild.id].shift();
+  saveData();return bk;
+}
+
+// â”€â”€ COMMAND EXECUTOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function exec(cmd,ctx){
+  const{guild,member,user}=ctx;
+  if(data.blacklist.includes(user.id)&&cmd!=="blacklist")return ctx.reply({embeds:[E.er("ðŸš« Blacklisted").setDescription("You are blacklisted from using this bot.")]},true);
+  if(CDS[cmd]){const w=chkCD(cmd,user.id);if(w>0)return ctx.reply({embeds:[E.w("â° Cooldown").setDescription(`Please wait **${w}s** before using this again.`)]},true);useCD(cmd,user.id);}
+
+  switch(cmd){
+    case"help":{const p=ctx.gi("page")||parseInt(ctx.ga(0)||"1")||1;return ctx.reply({embeds:[buildHelp(p)]});}
+    case"setup":return ctx.reply({embeds:[E.b("âš™ï¸ Server Setup Guide").setDescription("Follow these steps to fully configure the bot.").addFields({name:"**Step 1 â€” Logging**",value:"`/setlog #ch` Â· `/setreviews #ch` Â· `/settranscripts #ch`"},{name:"**Step 2 â€” Roblox Verification**",value:"`/setverifyrole @role` then `/verifypanel #channel`"},{name:"**Step 3 â€” Tickets**",value:"Run `/ticketpanel` in your support channel"},{name:"**Step 4 â€” Level-Up Channel**",value:"`/setlevelupchannel #channel`"},{name:"**Step 5 â€” Scam Reports**",value:"`/setscamchannel #channel`"},{name:"**Step 6 â€” Security**",value:"`/antiraid enable` â†’ `/antiraid config`\n`/antinuke enable` â†’ `/antinuke config`\n`/antinuke trust @youradmin`"}).setFooter({text:FT}).setTimestamp()]});
+    case"info":{const up=process.uptime(),h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s2=Math.floor(up%60);return ctx.reply({embeds:[E.b(`ðŸ§¸ ${NAME}`).setThumbnail(client.user?.displayAvatarURL()).addFields({name:"ðŸ¤– Tag",value:client.user?.tag||"â€”",inline:true},{name:"ðŸ“¦ Version",value:`v${VER}`,inline:true},{name:"ðŸ‘‘ Owner",value:OWNER,inline:true},{name:"ðŸŒ Servers",value:`${client.guilds.cache.size}`,inline:true},{name:"â±ï¸ Uptime",value:`${h}h ${m}m ${s2}s`,inline:true},{name:"ðŸ“‹ Orders",value:`${data.orders.length}`,inline:true},{name:"ðŸ¤– AI",value:GEMINI_KEY?"âœ… Gemini":"âŒ Disabled",inline:true},{name:"ðŸ–¼ï¸ Images",value:STAB_KEY?"Stability AI":"Pollinations",inline:true},{name:"ðŸŸ£ Verified",value:`${Object.keys(data.robloxVerified).length} users`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"ping":{if(ctx.slash){const sent=await ctx.i.reply({embeds:[E.i("ðŸ“ Measuringâ€¦")],fetchReply:true});const ms=sent.createdTimestamp-ctx.i.createdTimestamp;return ctx.i.editReply({embeds:[E.ok("ðŸ“ Pong!").addFields({name:"â±ï¸ Round-trip",value:`${ms}ms`,inline:true},{name:"ðŸ’“ Gateway",value:`${Math.round(client.ws.ping)}ms`,inline:true}).setFooter({text:FT}).setTimestamp()]});}return ctx.reply({embeds:[E.ok("ðŸ“ Pong!").addFields({name:"ðŸ’“ Gateway",value:`${Math.round(client.ws.ping)}ms`,inline:true}).setFooter({text:FT})]});}
+    case"status":{if(ctx.slash)await ctx.i.deferReply().catch(()=>{});const ar=guild?gAR(guild.id):null,an=guild?gAN(guild.id):null;return ctx.reply({embeds:[E.ok("ðŸŸ¢ All Systems Operational").addFields({name:"ðŸ¤– Bot",value:`ðŸŸ¢ Online Â· ${Math.round(client.ws.ping)}ms`,inline:true},{name:"ðŸ“‹ Active Orders",value:`${data.orders.filter(o=>o.status!=="completed"&&o.status!=="cancelled").length}`,inline:true},{name:"ðŸ¤– Gemini AI",value:GEMINI_KEY?"ðŸŸ¢ Ready":"ðŸ”´ No Key",inline:true},{name:"ðŸ–¼ï¸ Image Gen",value:STAB_KEY?"ðŸŸ¢ Stability":"ðŸŸ¡ Pollinations",inline:true},{name:"ðŸŸ£ Verified",value:`${Object.keys(data.robloxVerified).length} users`,inline:true},{name:"ðŸ›¡ï¸ Anti-Raid",value:ar?.enabled?"ðŸŸ¢ Active":"ðŸ”´ Off",inline:true},{name:"â˜¢ï¸ Anti-Nuke",value:an?.enabled?"ðŸŸ¢ Active":"ðŸ”´ Off",inline:true},{name:"ðŸŒ Servers",value:`${client.guilds.cache.size}`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"rules":return ctx.reply({embeds:[E.b("ðŸ“œ Server Rules").setDescription(RULES.join("\n\n")).setFooter({text:FT}).setTimestamp()]});
+    case"uptime":return ctx.reply({embeds:[E.b("â±ï¸ Uptime").setDescription(`Online for **${fmtDur(Math.floor(process.uptime()*1000))}**`).setFooter({text:FT})]});
+    case"invite":return ctx.reply({embeds:[E.b("ðŸ”— Invite the Bot").setDescription(`[**Click here to invite ${NAME}**](https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&permissions=8&scope=bot%20applications.commands)`).setFooter({text:FT})]});
+    case"ai":{
+      if(!GEMINI_KEY)return ctx.reply({embeds:[E.er("AI Disabled").setDescription("No `GEMINI_API_KEY` configured.")]},true);
+      const prompt=ctx.gs("message")||ctx.gas().join(" ");if(!prompt)return ctx.reply({embeds:[E.w("Usage: `s!ai <message>`")]});
+      if(ctx.slash)await ctx.i.deferReply().catch(()=>{});else ctx.channel.sendTyping().catch(()=>{});
+      if(!uChat.has(user.id))uChat.set(user.id,[]);
+      const hist=uChat.get(user.id);hist.push({role:"user",content:prompt});while(hist.length>20)hist.shift();
+      const{text,model}=await callGemini(hist,SYS.chat,{maxTokens:1000,temp:0.75});
+      if(!text)return ctx.reply({content:"âŒ AI is currently busy â€” please try again shortly."});
+      hist.push({role:"assistant",content:text});
+      return ctx.reply({embeds:[aiE(text,model,user.username,"chat")],allowedMentions:{users:[]}});
+    }
+    case"ai-reset":uChat.delete(user.id);return ctx.reply({embeds:[E.ok("âœ… AI Memory Cleared").setDescription("Your conversation history has been wiped.")]},true);
+    case"aioff":case"aion":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);if(!ctx.channel?.name?.startsWith("ticket-"))return ctx.reply({embeds:[E.w("Only works inside ticket channels.")]},true);if(cmd==="aioff")tAIOff.add(ctx.channel.id);else tAIOff.delete(ctx.channel.id);return ctx.reply({content:cmd==="aioff"?"ðŸ”‡ AI disabled for this ticket.":"ðŸ”Š AI re-enabled for this ticket."});}
+    case"imagine":{
+      const prompt=ctx.gs("prompt")||ctx.gas().join(" ");const style=ctx.gs("style")||null;
+      if(!prompt)return ctx.reply({embeds:[E.w("Usage: `s!imagine <prompt> [style]`")]});
+      if(ctx.slash)await ctx.i.deferReply().catch(()=>{});else ctx.channel.sendTyping().catch(()=>{});
+      try{
+        const enhanced=GEMINI_KEY?await enhancePrompt(`${prompt}${style?`, ${IMG_STYLES[style]||""}`:""}`):prompt;
+        const{buffer,ext,source}=await generateImage(enhanced,style);
+        const ts=Date.now(),att=new AttachmentBuilder(buffer,{name:`snuggles-ai-${ts}.${ext}`});
+        data.stats.imagesGenerated=(data.stats.imagesGenerated||0)+1;saveData();
+        return ctx.reply({embeds:[new EmbedBuilder().setColor(C.img).setAuthor({name:"Snuggles AI â€” Image Generator",iconURL:client.user?.displayAvatarURL()}).setTitle("ðŸŽ¨ Image Generated!").setDescription(`**Prompt:** ${prompt}${style?`\n**Style:** \`${style}\``:""}\n*${GEMINI_KEY?"Enhanced with Gemini AI":"Generated with Pollinations"}*`).setImage(`attachment://snuggles-ai-${ts}.${ext}`).addFields({name:"ðŸ”§ Engine",value:source,inline:true},{name:"ðŸ“ Resolution",value:"1024Ã—1024",inline:true}).setFooter({text:`Snuggles AI Â· ${user.username}`}).setTimestamp()],files:[att]});
+      }catch(e){return ctx.reply({embeds:[E.er("Image Generation Failed").setDescription(e.message)]});}
+    }
+    case"services":return ctx.reply({embeds:[E.b("ðŸ›ï¸ Services Offered").addFields(SERVICES).setFooter({text:FT}).setTimestamp()]});
+    case"prices":return ctx.reply({embeds:[E.ok("ðŸ’³ Pricing & Payment").addFields(...PAY_METHODS,{name:"âš ï¸ Refund Policy",value:"âš ï¸ All sales are **FINAL** â€” absolutely no refunds under any circumstances."}).setFooter({text:FT}).setTimestamp()]});
+    case"pay":return ctx.reply({embeds:[E.b("ðŸ’¸ Payment Details").addFields({name:"ðŸ’µ CashApp",value:"[$siahhispaid](https://cash.app/$siahhispaid)",inline:true},{name:"ðŸ…¿ï¸ PayPal",value:"[paypal.me/snugglesscripting](https://paypal.me/snugglesscripting)",inline:true},{name:"âš ï¸ Important",value:"**Friends & Family only.** All sales are final â€” no refunds."}).setFooter({text:FT})]});
+    case"orderinfo":{const id=ctx.gi("id")||parseInt(ctx.ga(0),10);const o=findOrder(id);if(!o)return ctx.reply({embeds:[E.er("Order Not Found").setDescription("No order with that ID exists.")]},true);const si=gOS(o.status);const emb=E.mk(si.color,`ðŸ“¦ Order #${o.id}`).addFields({name:"ðŸ“Š Status",value:`${si.emoji} ${si.label}`,inline:true},{name:"ðŸ‘¤ Customer",value:`<@${o.userId}>`,inline:true},{name:"ðŸ“… Created",value:`<t:${Math.floor(new Date(o.createdAt).getTime()/1000)}:f>`,inline:true},{name:"ðŸ”„ Updated",value:`<t:${Math.floor(new Date(o.updatedAt).getTime()/1000)}:R>`,inline:true},{name:"ðŸ“ Details",value:o.details});if(o.note)emb.addFields({name:"ðŸ“‹ Staff Note",value:o.note});return ctx.reply({embeds:[emb.setFooter({text:FT}).setTimestamp()]});}
+    case"discount":{const orders=data.orders.filter(o=>o.userId===user.id);if(!orders.length)return ctx.reply({embeds:[E.i("ðŸŽŸï¸ Loyalty Discount").setDescription("No orders yet! After your first commission you'll receive **5% off** all future orders. ðŸ’—")]});return ctx.reply({embeds:[E.ok("ðŸŽŸï¸ Loyalty Discount Active!").setDescription("You qualify for **5% off** your next commission!\n\nOpen a ticket and mention this when ordering.").addFields({name:"Your Orders",value:`${orders.length} total`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"ticket":return ctx.reply({embeds:[E.b("ðŸŽ« Opening a Ticket").setDescription("Use the **ticket panel** in the support channel.\n\nðŸ“¦ **Order** â€” Commission work *(staff reviewed)*\nðŸ¤ **Partnership** â€” Partner with us *(AI handled, 45 member min)*\nâ“ **Inquiry** â€” Questions & support *(AI 24/7)*").setFooter({text:FT})]});
+    case"portfolio":{if(!data.portfolio.length)return ctx.reply({embeds:[E.b("ðŸŽ¨ Portfolio").setDescription("No portfolio entries yet.").setFooter({text:FT})]});const total=data.portfolio.length;let page=ctx.gi("page")||parseInt(ctx.ga(0)||"1")||1;if(page>total)page=total;const work=[...data.portfolio].reverse()[page-1];const isVid=/\.(mov|mp4|webm)(?:\?|$)/i.test(work.url||"");const emb=E.b(`ðŸŽ¨ ${work.title||`Portfolio #${work.id}`}`).setURL(work.url).addFields({name:"ðŸ†” ID",value:`#${work.id}`,inline:true},{name:"ðŸ“ Type",value:isVid?"ðŸŽ¥ Video":"ðŸ–¼ï¸ Image",inline:true}).setFooter({text:`Page ${page}/${total} Â· ${FT}`});if(!isVid)emb.setImage(work.url);return ctx.reply({embeds:[emb]});}
+    case"script":{const t=(ctx.gs("type")||ctx.ga(0)||"").toLowerCase();const ex=SCRIPTS[t];if(!ex)return ctx.reply({embeds:[E.w("Invalid Type").setDescription("Available: `ui` Â· `datastore` Â· `remote` Â· `movement` Â· `admin`")]},true);return ctx.reply({embeds:[E.b(`ðŸ“œ ${ex.title}`).setDescription("```lua\n"+ex.code+"\n```").setFooter({text:FT})]});}
+    case"snippet":{const SNIPS=[{title:"Safe WaitForChild",code:`local part=workspace:WaitForChild("MyPart",5)\nif not part then warn("MyPart did not appear!") end`},{title:"Smooth Tween",code:`local TS=game:GetService("TweenService")\nTS:Create(part,TweenInfo.new(0.5,Enum.EasingStyle.Quad),{Position=part.Position+Vector3.new(0,5,0)}):Play()`},{title:"Touch Debounce",code:`local db={}\npart.Touched:Connect(function(hit)\n  if db[hit.Parent] then return end\n  db[hit.Parent]=true\n  print(hit.Parent.Name,"touched!")\n  task.wait(1)\n  db[hit.Parent]=nil\nend)`},{title:"Iterate Players",code:`for _,player in game.Players:GetPlayers() do\n  print(player.Name,player.UserId)\nend`}];const s2=SNIPS[ri(0,SNIPS.length-1)];return ctx.reply({embeds:[E.i(`ðŸ’¡ ${s2.title}`).setDescription("```lua\n"+s2.code+"\n```").setFooter({text:FT})]});}
+    case"docs":return ctx.reply({embeds:[E.b("ðŸ“š Roblox Resources").addFields(DOCS.map(d=>({name:d.name,value:d.value}))).setFooter({text:FT})]});
+    case"debug":return ctx.reply({embeds:[E.w("ðŸ› Bug Report Template").setDescription("```\nGoal:\n<what you're trying to achieve>\n\nProblem:\n<what's going wrong>\n\nError Message:\n<paste from Output window>\n\nRelevant Code:\n<the broken section>\n\nWhat I Tried:\n<steps already attempted>\n```").setFooter({text:FT})]});
+    case"tip":return ctx.reply({embeds:[E.b("ðŸ’¡ Scripting Tip").setDescription(TIPS[ri(0,TIPS.length-1)]).setFooter({text:FT})]});
+    case"level":{const target=ctx.gu("user")||user;const lv=gL(target.id),needed=xpFor(lv.level);const prog=Math.min(20,Math.floor((lv.xp/needed)*20));return ctx.reply({embeds:[E.xp(`ðŸ“Š Level â€” ${target.username}`).setThumbnail(target.displayAvatarURL()).addFields({name:"ðŸ† Level",value:`${lv.level}`,inline:true},{name:"âœ¨ XP",value:`${lv.xp} / ${needed}`,inline:true},{name:"ðŸ’¬ Messages",value:`${lv.totalMessages||0}`,inline:true},{name:"ðŸ“ˆ Progress",value:`\`${"â–ˆ".repeat(prog)}${"â–‘".repeat(20-prog)}\` ${Math.floor((lv.xp/needed)*100)}%`}).setFooter({text:FT}).setTimestamp()]});}
+    case"rank":{const target=ctx.gu("user")||user;const lv=gL(target.id),eco=gE(target.id),needed=xpFor(lv.level);const sorted=Object.entries(data.leveling).sort((a,b)=>b[1].level!==a[1].level?b[1].level-a[1].level:b[1].xp-a[1].xp);const rank=sorted.findIndex(([id])=>id===target.id)+1;const roblox=data.robloxVerified[target.id];return ctx.reply({embeds:[E.xp(`ðŸ… Stats â€” ${target.username}`).setThumbnail(target.displayAvatarURL()).addFields({name:"ðŸŒ Server Rank",value:rank>0?`#${rank}`:"Unranked",inline:true},{name:"ðŸ† Level",value:`${lv.level}`,inline:true},{name:"âœ¨ XP",value:`${lv.xp} / ${needed}`,inline:true},{name:"ðŸ’° Coins",value:`${eco.coins||0} ðŸª™`,inline:true},{name:"ðŸ’¬ Messages",value:`${lv.totalMessages||0}`,inline:true},{name:"âš ï¸ Warnings",value:`${(data.warns[target.id]||[]).length}`,inline:true},...(roblox?[{name:"ðŸŸ£ Roblox",value:`[${roblox.robloxName}](https://www.roblox.com/users/${roblox.robloxId}/profile)`,inline:true}]:[])).setFooter({text:FT}).setTimestamp()]});}
+    case"leaderboard":{if(ctx.slash)await ctx.i.deferReply().catch(()=>{});const top=Object.entries(data.leveling).map(([id,d])=>({id,level:d.level||1,xp:d.xp||0})).sort((a,b)=>b.level!==a.level?b.level-a.level:b.xp-a.xp).slice(0,10);if(!top.length)return ctx.reply({embeds:[E.b("ðŸ“Š Leaderboard").setDescription("No data yet!").setFooter({text:FT})]});const medals=["ðŸ¥‡","ðŸ¥ˆ","ðŸ¥‰"];const lines=await Promise.all(top.map(async(e,i)=>{let name=`<@${e.id}>`;try{const u=await client.users.fetch(e.id);name=`**${u.username}**`;}catch{}return`${medals[i]||`**${i+1}.**`} ${name} â€” Level **${e.level}** Â· ${e.xp} XP`;}));return ctx.reply({embeds:[E.g("ðŸ† XP Leaderboard").setDescription(lines.join("\n")).setFooter({text:FT}).setTimestamp()]});}
+    case"balance":{const target=ctx.gu("user")||user;const eco=gE(target.id);const items=(eco.inventory||[]).map(id=>SHOP.find(i=>i.id===id)?.emoji||id).join(" ")||"None";return ctx.reply({embeds:[E.g(`ðŸ’° Balance â€” ${target.username}`).setThumbnail(target.displayAvatarURL()).addFields({name:"ðŸ’° Coins",value:`${eco.coins||0} ðŸª™`,inline:true},{name:"ðŸŽ’ Inventory",value:items,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"dowork":{const eco=gE(user.id);const job=WORK[ri(0,WORK.length-1)];const earned=ri(job.r[0],job.r[1]);eco.coins=(eco.coins||0)+earned;saveData();return ctx.reply({embeds:[E.ok("ðŸ’¼ Work Complete!").setDescription(`> *${job.text}*\n\n**+ ${earned} ðŸª™ earned!**`).addFields({name:"ðŸ’° New Balance",value:`${eco.coins} ðŸª™`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"daily":{const uid=user.id,last=data.dailyClaims[uid]||0,elapsed=Date.now()-last;if(elapsed<86400000){const r=86400000-elapsed;return ctx.reply({embeds:[E.w("â° Already Claimed").setDescription(`Come back in **${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m**!`)]},true);}data.dailyClaims[uid]=Date.now();const reward=DAILY[ri(0,DAILY.length-1)];gE(uid).coins=(gE(uid).coins||0)+reward.coins;saveData();return ctx.reply({embeds:[E.ok("ðŸŽ Daily Reward Claimed!").setDescription(`${reward.text}\n\n**+ ${reward.coins} ðŸª™**`).setFooter({text:FT}).setTimestamp()]});}
+    case"shop":return ctx.reply({embeds:[E.g("ðŸ›’ Coin Shop").setDescription("Use `s!buy <id>` or `/buy <id>` to purchase.").addFields(SHOP.map(i=>({name:`${i.emoji} ${i.name} â€” ${i.price} ðŸª™`,value:`${i.desc}\n\`ID: ${i.id}\``}))).setFooter({text:FT}).setTimestamp()]});
+    case"buy":{const id=(ctx.gs("item")||ctx.ga(0)||"").toLowerCase();const item=SHOP.find(i=>i.id===id);if(!item)return ctx.reply({embeds:[E.er("Item Not Found").setDescription("Use `s!shop` to browse available items.")]},true);const eco=gE(user.id);if((eco.coins||0)<item.price)return ctx.reply({embeds:[E.er("Insufficient Coins").setDescription(`You need **${item.price} ðŸª™** but only have **${eco.coins||0} ðŸª™**.`)]},true);if((eco.inventory||[]).includes(id))return ctx.reply({embeds:[E.w("Already Owned").setDescription("You already own this item.")]},true);eco.coins-=item.price;if(!eco.inventory)eco.inventory=[];eco.inventory.push(id);saveData();return ctx.reply({embeds:[E.ok(`âœ… Purchased â€” ${item.emoji} ${item.name}`).addFields({name:"How to Redeem",value:item.desc},{name:"Remaining Balance",value:`${eco.coins} ðŸª™`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"review":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);const rating=ctx.gi("rating")||parseInt(ctx.ga(0),10);const type=ctx.gs("type")||ctx.ga(1)||"General";const txt=ctx.gs("message")||ctx.gas().slice(2).join(" ");if(!rating||rating<1||rating>5)return ctx.reply({embeds:[E.w("Rating must be between 1 and 5.")]},true);if(!txt||txt.length<10)return ctx.reply({embeds:[E.er("Review must be at least 10 characters.")]},true);const ck=`review:${user.id}:${guild.id}`,last=_cds.get(ck)||0;if(Date.now()-last<3600000&&last!==0)return ctx.reply({embeds:[E.w("â° Review cooldown (1hr)")]},true);_cds.set(ck,Date.now());const rev={id:data.nextReviewId++,userId:user.id,username:user.tag,commissionType:type,rating,message:txt,at:new Date().toISOString()};data.reviews.push(rev);data.stats.reviewsSubmitted=(data.stats.reviewsSubmitted||0)+1;saveData();const stars="â­".repeat(rating)+"â˜†".repeat(5-rating);const emb=E.b("â­ New Review").setThumbnail(user.displayAvatarURL()).addFields({name:"ðŸ‘¤ From",value:user.tag,inline:true},{name:"ðŸ› ï¸ Type",value:type,inline:true},{name:"ðŸ“Š Rating",value:stars,inline:true},{name:"ðŸ’¬ Review",value:txt}).setFooter({text:FT}).setTimestamp();const s2=gS(guild.id);if(s2.reviewsChannelId){const ch=await guild.channels.fetch(s2.reviewsChannelId).catch(()=>null);if(ch?.isTextBased()){await ch.send({embeds:[emb]});return ctx.reply({embeds:[E.ok("âœ… Review Submitted!").setDescription(`Posted in <#${s2.reviewsChannelId}>! ðŸ’—`)]});}}return ctx.reply({embeds:[emb]});}
+    case"vouch":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);const t=ctx.gs("text")||ctx.gas().join(" ");if(!t)return ctx.reply({embeds:[E.w("Usage: `s!vouch <text>`")]},true);const emb=E.ok("âœ… Vouch").setDescription(`> ${t}`).setThumbnail(user.displayAvatarURL()).setFooter({text:`by ${user.tag}`}).setTimestamp();const s2=gS(guild.id);if(s2.reviewsChannelId){const ch=await guild.channels.fetch(s2.reviewsChannelId).catch(()=>null);if(ch?.isTextBased()){await ch.send({embeds:[emb]});return ctx.reply({embeds:[E.ok("âœ… Vouch Posted!")]});}}return ctx.reply({embeds:[emb]});}
+    case"quote":return ctx.reply({embeds:[E.b("ðŸ’­ Quote").setDescription(`*"${QUOTES[ri(0,QUOTES.length-1)]}"*`).setFooter({text:FT})]});
+    case"meme":{try{const r=await fetch("https://meme-api.com/gimme/wholesomememes");const m=await r.json();if(m.nsfw||m.spoiler)throw new Error();return ctx.reply({embeds:[E.b(m.title||"ðŸ˜‚ Meme").setURL(m.postLink).setImage(m.url).setFooter({text:FT})]});}catch{return ctx.reply({embeds:[E.er("Couldn't load a meme. Try again!")]});}}
+    case"8ball":{const q=ctx.gs("question")||ctx.gas().join(" ");if(!q)return ctx.reply({embeds:[E.w("Usage: `s!8ball <question>`")]},true);const ans=BALL[ri(0,BALL.length-1)];return ctx.reply({embeds:[E.mk(BALL.indexOf(ans)<5?C.success:C.error,"ðŸŽ± Magic 8-Ball").addFields({name:"â“ Question",value:q.slice(0,1000)},{name:"ðŸŽ± Answer",value:`**${ans}**`}).setFooter({text:FT})]});}
+    case"rate":{const t=ctx.gs("thing")||ctx.gas().join(" ");if(!t)return ctx.reply({embeds:[E.w("Usage: `s!rate <thing>`")]},true);const s2=ri(0,10);const e=s2>=8?"ðŸ”¥ Incredible":s2>=6?"ðŸ˜Š Pretty Good":s2>=4?"ðŸ˜ Meh":s2>=2?"ðŸ˜¬ Not Great":"ðŸ’€ Terrible";return ctx.reply({embeds:[E.b("ðŸ“Š Rate-O-Meter").setDescription(`**${t}**\n\n${e} â€” **${s2}/10**\n\`${"â–ˆ".repeat(s2)}${"â–‘".repeat(10-s2)}\``).setFooter({text:FT})]});}
+    case"coinflip":{const r=Math.random()<.5?"Heads":"Tails";return ctx.reply({embeds:[E.b("ðŸª™ Coin Flip").setDescription(`**${r}!** ${r==="Heads"?"ðŸ‘‘":"ðŸŒŠ"}`).setFooter({text:FT})]});}
+    case"roll":{const max=ctx.gi("max")||parseInt(ctx.ga(0)||"6")||6;return ctx.reply({embeds:[E.b("ðŸŽ² Dice Roll").setDescription(`You rolled **${ri(1,max)}** *(1â€“${max})*`).setFooter({text:FT})]});}
+    case"rps":{const pick=(ctx.gs("choice")||ctx.ga(0)||"").toLowerCase();if(!["rock","paper","scissors"].includes(pick))return ctx.reply({embeds:[E.w("Choose: `rock`, `paper`, or `scissors`")]},true);const choices=["rock","paper","scissors"],emoji={rock:"ðŸª¨",paper:"ðŸ“„",scissors:"âœ‚ï¸"};const bot2=choices[ri(0,2)];const win=(pick==="rock"&&bot2==="scissors")||(pick==="paper"&&bot2==="rock")||(pick==="scissors"&&bot2==="paper");const outcome=pick===bot2?"ðŸ¤ It's a tie!":win?"ðŸŽ‰ You win!":"ðŸ¤– I win!";return ctx.reply({embeds:[E.mk(pick===bot2?C.warn:win?C.success:C.error,"ðŸŽ® Rock Â· Paper Â· Scissors").addFields({name:"Your Pick",value:`${emoji[pick]} ${pick}`,inline:true},{name:"My Pick",value:`${emoji[bot2]} ${bot2}`,inline:true},{name:"Result",value:outcome}).setFooter({text:FT})]});}
+    case"trivia":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(data.triviaActive[ctx.channel.id])return ctx.reply({embeds:[E.w("Trivia already active in this channel!")]},true);const q=TRIVIA[ri(0,TRIVIA.length-1)];const coins=ri(50,100);data.triviaActive[ctx.channel.id]={q:q.q,answers:q.a,coins};saveData();await ctx.reply({embeds:[E.i("ðŸ§  Scripting Trivia!").setDescription(`**${q.q}**\n\n> *Hint: ${q.hint}*`).addFields({name:"ðŸ’° Prize",value:`${coins} ðŸª™`,inline:true},{name:"â° Time Limit",value:"60 seconds",inline:true}).setFooter({text:FT})]});setTimeout(async()=>{if(data.triviaActive[ctx.channel.id]){delete data.triviaActive[ctx.channel.id];saveData();ctx.channel.send({embeds:[E.w("â° Trivia Timed Out").setDescription(`The answer was: **${q.a[0]}**`).setFooter({text:FT})]}).catch(()=>{});}},60000);break;}
+    case"remindme":{const timeStr=ctx.gs("time")||ctx.ga(0);const text=ctx.gs("message")||ctx.gas().slice(1).join(" ");if(!timeStr||!text)return ctx.reply({embeds:[E.w("Usage: `s!remindme 10m <message>`")]},true);const ms=parseDur(timeStr);if(!ms||ms>7*T.d)return ctx.reply({embeds:[E.er("Invalid duration. Max is 7 days.")]},true);await ctx.reply({embeds:[E.ok("â° Reminder Set!").setDescription(`I'll ping you in **${fmtDur(ms)}**\n> ${text}`).setFooter({text:FT})]});setTimeout(()=>ctx.channel.send({content:`<@${user.id}>`,embeds:[E.b("â° Reminder!").setDescription(`> ${text}`).setFooter({text:FT}).setTimestamp()]}).catch(()=>{}),ms);break;}
+    case"color":{const hex=(ctx.gs("hex")||ctx.ga(0)||"").replace("#","").trim();if(!/^[0-9A-Fa-f]{6}$/.test(hex))return ctx.reply({embeds:[E.w("Invalid hex code. Example: `FF8FB1`")]},true);const r2=parseInt(hex.slice(0,2),16),g2=parseInt(hex.slice(2,4),16),b2=parseInt(hex.slice(4,6),16);return ctx.reply({embeds:[E.mk(parseInt(hex,16),`ðŸŽ¨ #${hex.toUpperCase()}`).addFields({name:"HEX",value:`#${hex.toUpperCase()}`,inline:true},{name:"RGB",value:`rgb(${r2}, ${g2}, ${b2})`,inline:true},{name:"INT",value:`${parseInt(hex,16)}`,inline:true}).setImage(`https://singlecolorimage.com/get/${hex}/300x80`).setFooter({text:FT})]});}
+    case"calc":{const expr=(ctx.gs("expression")||ctx.gas().join(" ")||"").replace(/[^0-9+\-*/.() %^]/g,"");if(!expr)return ctx.reply({embeds:[E.w("Usage: `s!calc 2+2`")]},true);try{const result=Function('"use strict";return('+expr+')')();if(!isFinite(result))throw new Error("Not finite");return ctx.reply({embeds:[E.b("ðŸ§® Calculator").addFields({name:"Expression",value:`\`${expr}\``,inline:true},{name:"Result",value:`\`${result}\``,inline:true}).setFooter({text:FT})]});}catch{return ctx.reply({embeds:[E.er("Invalid expression.")]},true);}}
+    case"userinfo":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);const target=ctx.gu("user")||user;const gm=await guild.members.fetch(target.id).catch(()=>null);const lv=gL(target.id),eco=gE(target.id);const emb=E.b(`ðŸ‘¤ ${target.username}`).setThumbnail(target.displayAvatarURL({size:256})).addFields({name:"ðŸ†” User ID",value:target.id,inline:true},{name:"ðŸ¤– Bot",value:target.bot?"Yes":"No",inline:true},{name:"ðŸ“… Account Created",value:`<t:${Math.floor(target.createdTimestamp/1000)}:F>`});if(gm){if(gm.joinedTimestamp)emb.addFields({name:"ðŸ“¥ Joined Server",value:`<t:${Math.floor(gm.joinedTimestamp/1000)}:F>`});const roles=gm.roles.cache.filter(r=>r.id!==guild.id).sort((a,b)=>b.position-a.position).map(r=>`<@&${r.id}>`).slice(0,15);if(roles.length)emb.addFields({name:`ðŸŽ­ Roles [${gm.roles.cache.size-1}]`,value:roles.join(" ")});emb.addFields({name:"ðŸ† Level",value:`${lv.level}`,inline:true},{name:"âœ¨ XP",value:`${lv.xp}`,inline:true},{name:"ðŸ’° Coins",value:`${eco.coins||0} ðŸª™`,inline:true},{name:"âš ï¸ Warnings",value:`${(data.warns[target.id]||[]).length}`,inline:true});}const roblox=data.robloxVerified[target.id];if(roblox)emb.addFields({name:"ðŸŸ£ Roblox Account",value:`[${roblox.robloxName}](https://www.roblox.com/users/${roblox.robloxId}/profile)`,inline:true});return ctx.reply({embeds:[emb.setFooter({text:FT}).setTimestamp()]});}
+    case"serverinfo":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(ctx.slash)await ctx.i.deferReply().catch(()=>{});const owner=await guild.fetchOwner().catch(()=>null);const chs=guild.channels.cache;const verMap={0:"None",1:"Low",2:"Medium",3:"High",4:"Very High"};return ctx.reply({embeds:[E.b(`ðŸ  ${guild.name}`).setThumbnail(guild.iconURL({size:256})||null).addFields({name:"ðŸ†” Server ID",value:guild.id,inline:true},{name:"ðŸ‘‘ Owner",value:owner?.user.tag||"â€”",inline:true},{name:"ðŸ“… Created",value:`<t:${Math.floor(guild.createdTimestamp/1000)}:F>`},{name:"ðŸ‘¥ Members",value:`${guild.memberCount}`,inline:true},{name:"ðŸŽ­ Roles",value:`${guild.roles.cache.size}`,inline:true},{name:"ðŸ˜„ Emojis",value:`${guild.emojis.cache.size}`,inline:true},{name:"ðŸ’¬ Text Channels",value:`${chs.filter(c=>c.type===ChannelType.GuildText).size}`,inline:true},{name:"ðŸ”Š Voice Channels",value:`${chs.filter(c=>c.type===ChannelType.GuildVoice).size}`,inline:true},{name:"ðŸ›¡ï¸ Verification",value:verMap[guild.verificationLevel]||"â€”",inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"avatar":{const target=ctx.gu("user")||user;const url=target.displayAvatarURL({size:1024,extension:"png"});return ctx.reply({embeds:[E.b(`ðŸ–¼ï¸ ${target.username}'s Avatar`).setURL(url).setImage(url).setFooter({text:FT})]});}
+    case"banner":{const target=ctx.gu("user")||user;const u2=await client.users.fetch(target.id,{force:true}).catch(()=>null);if(!u2?.bannerURL())return ctx.reply({embeds:[E.w("This user has no banner.")]},true);const url=u2.bannerURL({size:1024});return ctx.reply({embeds:[E.b(`ðŸ–¼ï¸ ${u2.username}'s Banner`).setURL(url).setImage(url).setFooter({text:FT})]});}
+    case"servericon":{if(!guild?.iconURL())return ctx.reply({embeds:[E.er("This server has no icon.")]},true);const url=guild.iconURL({size:1024,extension:"png"});return ctx.reply({embeds:[E.b(`ðŸ–¼ï¸ ${guild.name}`).setURL(url).setImage(url).setFooter({text:FT})]});}
+    case"stats":{const done=data.orders.filter(o=>o.status==="completed").length;const avg=data.reviews.length?(data.reviews.reduce((s2,r)=>s2+r.rating,0)/data.reviews.length).toFixed(2):"â€”";return ctx.reply({embeds:[E.b("ðŸ“ˆ Bot Statistics").addFields({name:"ðŸ“‹ Active Orders",value:`${data.orders.filter(o=>o.status!=="completed"&&o.status!=="cancelled").length}`,inline:true},{name:"âœ… Completed",value:`${done}`,inline:true},{name:"ðŸŽŸï¸ Tickets Opened",value:`${data.stats.ticketsOpened||0}`,inline:true},{name:"â­ Reviews",value:`${data.reviews.length} (avg ${avg}â­)`,inline:true},{name:"ðŸ–¼ï¸ AI Images",value:`${data.stats.imagesGenerated||0}`,inline:true},{name:"ðŸŸ£ Verified Users",value:`${Object.keys(data.robloxVerified).length}`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"invites":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);const target=ctx.gu("user")||user;const inv=(data.invites[guild.id]||{})[target.id]||{invited:0,left:0};return ctx.reply({embeds:[E.i(`ðŸ“¨ Invites â€” ${target.username}`).addFields({name:"ðŸ“¬ Total Invited",value:`${inv.invited}`,inline:true},{name:"ðŸšª Left",value:`${inv.left}`,inline:true},{name:"âœ… Net",value:`${inv.invited-inv.left}`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"inviteleaderboard":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);const inv=data.invites[guild.id]||{};const entries=Object.entries(inv).map(([id,d])=>({id,net:d.invited-d.left})).sort((a,b)=>b.net-a.net).slice(0,10);return ctx.reply({embeds:[E.g("ðŸ“¨ Invite Leaderboard").setDescription(entries.length?entries.map((e,i)=>`**${i+1}.** <@${e.id}> â€” **${e.net}** net invites`).join("\n"):"No invite data.").setFooter({text:FT}).setTimestamp()]});}
+    case"verify":{
+      const username=ctx.gs("username")||ctx.ga(0);if(!username)return ctx.reply({embeds:[E.w("Usage: `s!verify <robloxUsername>`")]},true);
+      if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});else ctx.channel.sendTyping().catch(()=>{});
+      const rxUser=await fetchRxUser(username);if(!rxUser)return ctx.reply({embeds:[E.er("Roblox User Not Found").setDescription(`Could not find **${username}** on Roblox. Check the spelling.`)]},true);
+      const code=genCode();data.verificationCodes[user.id]={code,robloxName:rxUser.name,robloxId:rxUser.id,expiresAt:Date.now()+10*60000};saveData();
+      return ctx.reply({embeds:[E.rb("ðŸŸ£ Roblox Verification â€” Step 1").setDescription([`**Found:** [${rxUser.name}](https://www.roblox.com/users/${rxUser.id}/profile) *(ID: \`${rxUser.id}\`)*`,"","**How to Verify:**","â‘  Copy the code below","â‘¡ Go to [roblox.com/my/account](https://www.roblox.com/my/account) â†’ **About** tab","â‘¢ Paste the code anywhere in your bio and **save**","â‘£ Run `/checkverify <code>` here","","> â° Code expires in **10 minutes**"].join("\n")).addFields({name:"ðŸ”‘ Your Verification Code",value:`\`\`\`${code}\`\`\``}).setFooter({text:"Paste in Roblox bio â†’ /checkverify"}).setTimestamp()]},true);
+    }
+    case"checkverify":{
+      const code=(ctx.gs("code")||ctx.ga(0)||"").toUpperCase();if(!code)return ctx.reply({embeds:[E.w("Usage: `s!checkverify <code>`")]},true);
+      if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});
+      const pending=data.verificationCodes[user.id];
+      if(!pending)return ctx.reply({embeds:[E.er("No Pending Verification").setDescription("Start with `/verify <username>` first.")]},true);
+      if(Date.now()>pending.expiresAt){delete data.verificationCodes[user.id];saveData();return ctx.reply({embeds:[E.er("Code Expired").setDescription("Run `/verify` again to get a new code.")]},true);}
+      if(code!==pending.code)return ctx.reply({embeds:[E.er("Incorrect Code").setDescription(`Your code is: \`${pending.code}\``)]},true);
+      const profile=await fetchRxProfile(pending.robloxId);
+      if(!profile||!profile.description.includes(pending.code))return ctx.reply({embeds:[E.w("Code Not Found in Bio").setDescription(`We checked **${pending.robloxName}**'s profile but couldn't find the code.\n\nMake sure \`${pending.code}\` is in your **About** section, save it, then try again.`)]},true);
+      const avatar=await fetchRxAvatar(pending.robloxId);
+      data.robloxVerified[user.id]={robloxId:pending.robloxId,robloxName:pending.robloxName,robloxDisplayName:profile.displayName,verifiedAt:new Date().toISOString(),discordTag:user.tag};
+      delete data.verificationCodes[user.id];saveData();
+      if(guild){const gm=await guild.members.fetch(user.id).catch(()=>null);if(gm){await gm.setNickname(profile.displayName||pending.robloxName,"Roblox verification").catch(()=>{});const s2=gS(guild.id);if(s2.verifyRoleId){const role=guild.roles.cache.get(s2.verifyRoleId);if(role)gm.roles.add(role,"Roblox Verified").catch(()=>{});}}}
+      const emb=E.ok("âœ… Roblox Account Verified!").setDescription(`You are now verified as **[${pending.robloxName}](https://www.roblox.com/users/${pending.robloxId}/profile)**!\n\nYour nickname has been updated to your Roblox display name.`).addFields({name:"ðŸŸ£ Roblox Username",value:pending.robloxName,inline:true},{name:"ðŸ†” Roblox ID",value:`${pending.robloxId}`,inline:true}).setFooter({text:FT}).setTimestamp();
+      if(avatar)emb.setThumbnail(avatar);return ctx.reply({embeds:[emb]},true);
+    }
+    case"whois":{
+      const target=ctx.gu("user")||user;const roblox=data.robloxVerified[target.id];
+      if(!roblox)return ctx.reply({embeds:[E.w("Not Verified").setDescription(`**${target.username}** has not linked a Roblox account.\n\nThey can use \`/verify <username>\` to do so.`)]},true);
+      if(ctx.slash)await ctx.i.deferReply().catch(()=>{});
+      const profile=await fetchRxProfile(roblox.robloxId);const avatar=await fetchRxAvatar(roblox.robloxId);
+      const emb=E.rb(`ðŸŸ£ Roblox â€” ${target.username}`).setThumbnail(avatar||target.displayAvatarURL()).addFields({name:"ðŸŸ£ Roblox Username",value:`[${roblox.robloxName}](https://www.roblox.com/users/${roblox.robloxId}/profile)`,inline:true},{name:"ðŸ†” Roblox ID",value:`${roblox.robloxId}`,inline:true},{name:"âœ… Verified",value:`<t:${Math.floor(new Date(roblox.verifiedAt).getTime()/1000)}:R>`,inline:true});
+      if(profile){if(profile.displayName&&profile.displayName!==profile.name)emb.addFields({name:"ðŸ“› Display Name",value:profile.displayName,inline:true});if(profile.friendCount!=null)emb.addFields({name:"ðŸ‘¥ Friends",value:`${profile.friendCount}`,inline:true});if(profile.created)emb.addFields({name:"ðŸ“… Account Created",value:`<t:${Math.floor(new Date(profile.created).getTime()/1000)}:D>`,inline:true});if(profile.description)emb.addFields({name:"ðŸ“ Bio",value:profile.description.slice(0,300)+(profile.description.length>300?"â€¦":"")});if(profile.isBanned)emb.addFields({name:"âš ï¸ Status",value:"This account is **banned**."});}
+      return ctx.reply({embeds:[emb.setFooter({text:FT}).setTimestamp()]});
+    }
+    case"unverify":{if(!data.robloxVerified[user.id])return ctx.reply({embeds:[E.w("You don't have a linked Roblox account.")]},true);const name=data.robloxVerified[user.id].robloxName;delete data.robloxVerified[user.id];saveData();return ctx.reply({embeds:[E.ok("âœ… Roblox Account Unlinked").setDescription(`**${name}** has been unlinked from your Discord account.`).setFooter({text:FT})]});}
+    case"verifypanel":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel")||guild.channels.cache.get(ctx.ga(0)?.replace(/[<#>]/g,""));if(!ch?.isTextBased())return ctx.reply({embeds:[E.w("Please provide a valid text channel.")]},true);const{emb,row}=buildVerifyPanel();await ch.send({embeds:[emb],components:[row]});return ctx.reply({embeds:[E.ok(`âœ… Verification panel posted in <#${ch.id}>!`).setFooter({text:FT})]});}
+    case"reportscammer":{if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const evidence=ctx.gs("evidence")||ctx.gas().slice(1).join(" ")||"No evidence provided";const amount=ctx.gs("amount")||"Unknown";const roblox=ctx.gs("roblox")||"Unknown";const report={id:data.nextScamId++,userId:target.id,userTag:target.tag,robloxName:roblox,evidence,amount,reportedBy:user.id,reporterTag:user.tag,guildId:guild.id,at:new Date().toISOString()};data.scamReports.push(report);saveData();const emb=E.sc(`ðŸš¨ Scammer Report #${report.id}`).setThumbnail(target.displayAvatarURL()).setDescription("âš ï¸ **Do NOT** pay, trade with, or engage with this person.").addFields({name:"ðŸ‘¤ Discord",value:`${target.tag} (<@${target.id}>)`,inline:true},{name:"ðŸ†” Discord ID",value:target.id,inline:true},{name:"ðŸŸ£ Roblox",value:roblox,inline:true},{name:"ðŸ’¸ Amount Scammed",value:amount,inline:true},{name:"ðŸ”– Reported By",value:user.tag,inline:true},{name:"ðŸ“… Date",value:`<t:${Math.floor(Date.now()/1000)}:F>`,inline:true},{name:"ðŸ“‹ Evidence",value:evidence}).setFooter({text:FT}).setTimestamp();const s2=gS(guild.id);if(s2.scamChannelId){const ch=await guild.channels.fetch(s2.scamChannelId).catch(()=>null);if(ch?.isTextBased()){await ch.send({embeds:[emb]});return ctx.reply({embeds:[E.ok(`âœ… Report #${report.id} posted in <#${s2.scamChannelId}>`)]});}}await ctx.reply({embeds:[E.w("No scam channel set. Use `/setscamchannel`.")]});await ctx.channel.send({embeds:[emb]});break;}
+    case"scammerlist":{if(!data.scamReports.length)return ctx.reply({embeds:[E.ok("âœ… No Reports").setDescription("No scammers have been reported.").setFooter({text:FT})]});const recent=data.scamReports.slice(-10).reverse();return ctx.reply({embeds:[E.sc("ðŸš¨ Recent Scam Reports").setDescription(recent.map(r=>`**#${r.id}** â€” ${r.userTag} Â· Roblox: \`${r.robloxName}\` Â· Amount: ${r.amount}`).join("\n")).setFooter({text:`${data.scamReports.length} total reports Â· ${FT}`}).setTimestamp()]});}
+    case"setscamchannel":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel");if(!ch)return ctx.reply({embeds:[E.w("Usage: `/setscamchannel #channel`")]},true);gS(guild.id).scamChannelId=ch.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Scam Channel Set").setDescription(`Reports will be posted in <#${ch.id}>`).setFooter({text:FT})]});}
+    case"reactionrole":{
+      if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);
+      if(!isAdmin(member)&&!hP(member,PermissionFlagsBits.ManageRoles))return ctx.reply({embeds:[E.er("You need **Manage Roles** permission.")]},true);
+      const sub=ctx.gsub()||ctx.ga(0)||"";
+      if(sub==="add"){const msgId=ctx.gs("messageid")||ctx.ga(1);const emoji=ctx.gs("emoji")||ctx.ga(2);const role=ctx.gr("role")||ctx.grm(3);if(!msgId||!emoji||!role)return ctx.reply({embeds:[E.w("Usage: `s!reactionrole add <msgId> <emoji> <@role>`")]},true);let tMsg=null;for(const ch of guild.channels.cache.filter(c=>c.isTextBased()).values()){try{tMsg=await ch.messages.fetch(msgId);if(tMsg)break;}catch{}}if(!tMsg)return ctx.reply({embeds:[E.er("Message not found.")]},true);if(!data.reactionRoles[guild.id])data.reactionRoles[guild.id]={};if(!data.reactionRoles[guild.id][msgId])data.reactionRoles[guild.id][msgId]={};data.reactionRoles[guild.id][msgId][emoji]=role.id;saveData();await tMsg.react(emoji).catch(()=>{});return ctx.reply({embeds:[E.ok("âœ… Reaction Role Added").addFields({name:"Message",value:`[Jump](${tMsg.url})`,inline:true},{name:"Emoji",value:emoji,inline:true},{name:"Role",value:`<@&${role.id}>`,inline:true}).setFooter({text:FT})]});}
+      if(sub==="remove"){const msgId=ctx.gs("messageid")||ctx.ga(1);const emoji=ctx.gs("emoji")||ctx.ga(2);if(!msgId||!emoji)return ctx.reply({embeds:[E.w("Usage: `s!reactionrole remove <msgId> <emoji>`")]},true);if(data.reactionRoles[guild.id]?.[msgId]?.[emoji]){delete data.reactionRoles[guild.id][msgId][emoji];if(!Object.keys(data.reactionRoles[guild.id][msgId]).length)delete data.reactionRoles[guild.id][msgId];saveData();return ctx.reply({embeds:[E.ok("âœ… Reaction Role Removed")]});}return ctx.reply({embeds:[E.er("Reaction role not found.")]},true);}
+      if(sub==="list"){const gRR=data.reactionRoles[guild.id];if(!gRR||!Object.keys(gRR).length)return ctx.reply({embeds:[E.i("No reaction roles configured yet.")]});const lines=[];for(const[msgId,emojis]of Object.entries(gRR)){lines.push(`**Message \`${msgId}\`**`);for(const[e,rId]of Object.entries(emojis))lines.push(`  ${e} â†’ <@&${rId}>`);}return ctx.reply({embeds:[E.i("ðŸŽ­ Reaction Roles").setDescription(lines.join("\n")).setFooter({text:FT}).setTimestamp()]});}
+      if(sub==="panel"){const title=ctx.gs("title")||ctx.gas().slice(1,2).join(" ");const desc=ctx.gs("description")||ctx.gas().slice(2).join(" ");if(!title||!desc)return ctx.reply({embeds:[E.w("Usage: `s!reactionrole panel <title> <description>`")]},true);if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});const sent=await ctx.channel.send({embeds:[E.b(title).setDescription(`${desc}\n\n*React below to receive a role!*`).setFooter({text:FT}).setTimestamp()]});return ctx.reply({content:`âœ… Panel posted! Add roles with \`s!reactionrole add ${sent.id} <emoji> <@role>\``,flags:MessageFlags.Ephemeral});}
+      return ctx.reply({embeds:[E.w("Subcommands: `add` Â· `remove` Â· `list` Â· `panel`")]},true);
+    }
+    case"antiraid":{
+      if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);
+      const sub=ctx.gsub()||ctx.ga(0)||"",s=gAR(guild.id);
+      if(sub==="enable"){s.enabled=true;saveData();return ctx.reply({embeds:[E.ok("ðŸ›¡ï¸ Anti-Raid Enabled").addFields({name:"Threshold",value:`${s.threshold} joins`,inline:true},{name:"Window",value:`${s.window/1000}s`,inline:true},{name:"Action",value:s.action.toUpperCase(),inline:true}).setFooter({text:FT})]});}
+      if(sub==="disable"){s.enabled=false;saveData();return ctx.reply({embeds:[E.w("ðŸ›¡ï¸ Anti-Raid Disabled").setFooter({text:FT})]});}
+      if(sub==="status"){return ctx.reply({embeds:[E.mk(s.enabled?C.success:C.warn,`ðŸ›¡ï¸ Anti-Raid â€” ${s.enabled?"ðŸŸ¢ Active":"ðŸ”´ Disabled"}`).addFields({name:"âš¡ Trigger Threshold",value:`**${s.threshold}** joins`,inline:true},{name:"â±ï¸ Detection Window",value:`**${s.window/1000}** seconds`,inline:true},{name:"ðŸŽ¯ Action",value:`**${s.action.toUpperCase()}**`,inline:true},{name:"ðŸ”“ Auto-Unlock",value:s.autoUnlock?`**${fmtDur(s.autoUnlock)}**`:"Manual only",inline:true},{name:"ðŸ“¨ DM on Action",value:s.dmOnAction?"Yes":"No",inline:true},{name:"ðŸ‘¥ Whitelisted Users",value:`**${s.whitelistedUsers?.length||0}**`,inline:true},{name:"ðŸ“¢ Notify Channel",value:s.notifyChannel?`<#${s.notifyChannel}>`:"Not set",inline:true}).setFooter({text:FT}).setTimestamp()]});}
+      if(sub==="config"){const threshold=ctx.gi("threshold"),window2=ctx.gi("window"),action=ctx.gs("action"),autounlock=ctx.gi("autounlock"),notify=ctx.gc("notify");if(threshold!=null)s.threshold=threshold;if(window2!=null)s.window=window2*1000;if(action!=null)s.action=action;if(autounlock!=null)s.autoUnlock=autounlock*1000;if(notify)s.notifyChannel=notify.id;saveData();return ctx.reply({embeds:[E.ok("ðŸ›¡ï¸ Anti-Raid Updated").addFields({name:"Threshold",value:`${s.threshold} joins`,inline:true},{name:"Window",value:`${s.window/1000}s`,inline:true},{name:"Action",value:s.action.toUpperCase(),inline:true},{name:"Auto-Unlock",value:s.autoUnlock?fmtDur(s.autoUnlock):"Manual",inline:true}).setFooter({text:FT})]});}
+      if(sub==="whitelist"){const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);if(!s.whitelistedUsers)s.whitelistedUsers=[];if(!s.whitelistedUsers.includes(target.id))s.whitelistedUsers.push(target.id);saveData();return ctx.reply({embeds:[E.ok("âœ… User Whitelisted").setDescription(`<@${target.id}> is now exempt from anti-raid.`).setFooter({text:FT})]});}
+      if(sub==="unwhitelist"){const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);s.whitelistedUsers=(s.whitelistedUsers||[]).filter(id=>id!==target.id);saveData();return ctx.reply({embeds:[E.ok("âœ… Removed from Whitelist").setFooter({text:FT})]});}
+      return ctx.reply({embeds:[E.w("Subcommands: `enable` Â· `disable` Â· `status` Â· `config` Â· `whitelist` Â· `unwhitelist`")]},true);
+    }
+    case"antinuke":{
+      if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);
+      const sub=ctx.gsub()||ctx.ga(0)||"",s=gAN(guild.id);
+      if(sub==="enable"){s.enabled=true;saveData();return ctx.reply({embeds:[E.ok("â˜¢ï¸ Anti-Nuke Enabled").addFields({name:"Action",value:s.action.toUpperCase(),inline:true},{name:"Ban Threshold",value:`${s.banThreshold}`,inline:true},{name:"Channel Delete Threshold",value:`${s.channelDeleteThreshold}`,inline:true}).setFooter({text:FT})]});}
+      if(sub==="disable"){s.enabled=false;saveData();return ctx.reply({embeds:[E.w("â˜¢ï¸ Anti-Nuke Disabled").setFooter({text:FT})]});}
+      if(sub==="status"){return ctx.reply({embeds:[E.mk(s.enabled?C.success:C.warn,`â˜¢ï¸ Anti-Nuke â€” ${s.enabled?"ðŸŸ¢ Active":"ðŸ”´ Disabled"}`).addFields({name:"â±ï¸ Detection Window",value:`**${s.window/1000}** seconds`,inline:true},{name:"ðŸŽ¯ Action",value:`**${s.action.toUpperCase()}**`,inline:true},{name:"ðŸ”¨ Ban Threshold",value:`**${s.banThreshold}** bans`,inline:true},{name:"ðŸ’¬ Channel Delete Threshold",value:`**${s.channelDeleteThreshold}** del`,inline:true},{name:"ðŸŽ­ Role Delete Threshold",value:`**${s.roleDeleteThreshold}** del`,inline:true},{name:"ðŸ‘¢ Kick Threshold",value:`**${s.kickThreshold}** kicks`,inline:true},{name:"ðŸ‘¥ Trusted Users",value:`**${s.trustedUsers?.length||0}**`,inline:true},{name:"ðŸ“¢ Notify Channel",value:s.notifyChannel?`<#${s.notifyChannel}>`:"Not set",inline:true}).setFooter({text:FT}).setTimestamp()]});}
+      if(sub==="config"){const banth=ctx.gi("banth"),channelth=ctx.gi("channelth"),roleth=ctx.gi("roleth"),kickth=ctx.gi("kickth"),action=ctx.gs("action"),notify=ctx.gc("notify");if(banth!=null)s.banThreshold=banth;if(channelth!=null)s.channelDeleteThreshold=channelth;if(roleth!=null)s.roleDeleteThreshold=roleth;if(kickth!=null)s.kickThreshold=kickth;if(action!=null)s.action=action;if(notify)s.notifyChannel=notify.id;saveData();return ctx.reply({embeds:[E.ok("â˜¢ï¸ Anti-Nuke Updated").addFields({name:"Ban Threshold",value:`${s.banThreshold}`,inline:true},{name:"Channel Threshold",value:`${s.channelDeleteThreshold}`,inline:true},{name:"Role Threshold",value:`${s.roleDeleteThreshold}`,inline:true},{name:"Kick Threshold",value:`${s.kickThreshold}`,inline:true},{name:"Action",value:s.action.toUpperCase(),inline:true}).setFooter({text:FT})]});}
+      if(sub==="trust"){const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);if(!s.trustedUsers)s.trustedUsers=[];if(!s.trustedUsers.includes(target.id))s.trustedUsers.push(target.id);saveData();return ctx.reply({embeds:[E.ok("âœ… User Trusted").setDescription(`<@${target.id}> is now exempt from anti-nuke.`).setFooter({text:FT})]});}
+      if(sub==="untrust"){const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);s.trustedUsers=(s.trustedUsers||[]).filter(id=>id!==target.id);saveData();return ctx.reply({embeds:[E.ok("âœ… Trust Removed").setFooter({text:FT})]});}
+      return ctx.reply({embeds:[E.w("Subcommands: `enable` Â· `disable` Â· `status` Â· `config` Â· `trust` Â· `untrust`")]},true);
+    }
+    case"ban":{if(!hP(member,PermissionFlagsBits.BanMembers))return ctx.reply({embeds:[E.er("You need **Ban Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const reason=ctx.gs("reason")||"No reason provided";const days=ctx.gi("days")??0;const tm=await guild.members.fetch(target.id).catch(()=>null);if(tm&&!tm.bannable)return ctx.reply({embeds:[E.er("I cannot ban this user â€” they may have a higher role than me.")]},true);try{await guild.bans.create(target.id,{reason:`By ${user.tag}: ${reason}`,deleteMessageSeconds:days*86400});}catch{return ctx.reply({embeds:[E.er("Ban failed â€” check my permissions.")]},true);}if(!data.warns[target.id])data.warns[target.id]=[];data.warns[target.id].push({id:data.nextWarnId++,type:"ban",reason,modId:user.id,at:new Date().toISOString()});saveData();try{await target.send({embeds:[E.er(`ðŸ”¨ You were banned from ${guild.name}`).addFields({name:"Reason",value:reason},{name:"Moderator",value:user.tag}).setTimestamp()]});}catch{}const emb=E.mk(C.error,"ðŸ”¨ Member Banned").addFields({name:"ðŸ‘¤ User",value:`${target.tag}\n<@${target.id}>`,inline:true},{name:"ðŸ‘® Moderator",value:user.tag,inline:true},{name:"ðŸ—‘ï¸ Messages Deleted",value:days>0?`${days} day(s)`:"None",inline:true},{name:"ðŸ“‹ Reason",value:reason}).setFooter({text:FT}).setTimestamp();await ctx.reply({embeds:[emb]});await logMod(guild,emb);break;}
+    case"softban":{if(!hP(member,PermissionFlagsBits.BanMembers))return ctx.reply({embeds:[E.er("You need **Ban Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const reason=ctx.gs("reason")||"Softban";try{await guild.bans.create(target.id,{reason:`Softban by ${user.tag}: ${reason}`,deleteMessageSeconds:7*86400});await guild.bans.remove(target.id,"Softban unban");}catch{return ctx.reply({embeds:[E.er("Softban failed â€” check my permissions.")]},true);}const emb=E.mk(C.warn,"ðŸ§¹ Member Softbanned").addFields({name:"ðŸ‘¤ User",value:`${target.tag}\n<@${target.id}>`,inline:true},{name:"ðŸ‘® Moderator",value:user.tag,inline:true},{name:"âš¡ Effect",value:"Banned then immediately unbanned\n7 days of messages deleted",inline:true},{name:"ðŸ“‹ Reason",value:reason}).setFooter({text:FT}).setTimestamp();await ctx.reply({embeds:[emb]});await logMod(guild,emb);break;}
+    case"kick":{if(!hP(member,PermissionFlagsBits.KickMembers))return ctx.reply({embeds:[E.er("You need **Kick Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const reason=ctx.gs("reason")||"No reason provided";const m2=await guild.members.fetch(target.id).catch(()=>null);if(!m2?.kickable)return ctx.reply({embeds:[E.er("Cannot kick this user.")]},true);await m2.kick(`By ${user.tag}: ${reason}`);const emb=E.mk(C.warn,"ðŸ‘¢ Member Kicked").addFields({name:"ðŸ‘¤ User",value:`${target.tag}\n<@${target.id}>`,inline:true},{name:"ðŸ‘® Moderator",value:user.tag,inline:true},{name:"ðŸ“‹ Reason",value:reason}).setFooter({text:FT}).setTimestamp();await ctx.reply({embeds:[emb]});await logMod(guild,emb);break;}
+    case"mute":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");const durStr=ctx.gs("duration")||ctx.ga(1)||"";const reason=ctx.gs("reason")||"No reason provided";if(!target||!durStr)return ctx.reply({embeds:[E.w("Usage: `/mute @user <duration> [reason]`")]},true);const ms=parseDur(durStr);if(!ms||ms>28*T.d)return ctx.reply({embeds:[E.er("Invalid duration. Max is 28 days.")]},true);const m2=await guild.members.fetch(target.id).catch(()=>null);if(!m2?.moderatable)return ctx.reply({embeds:[E.er("Cannot timeout this user.")]},true);await m2.timeout(ms,`By ${user.tag}: ${reason}`);const emb=E.mk(C.warn,"ðŸ”‡ Member Timed Out").addFields({name:"ðŸ‘¤ User",value:`${target.tag}\n<@${target.id}>`,inline:true},{name:"â±ï¸ Duration",value:fmtDur(ms),inline:true},{name:"ðŸ‘® Moderator",value:user.tag,inline:true},{name:"ðŸ“‹ Reason",value:reason}).setFooter({text:FT}).setTimestamp();await ctx.reply({embeds:[emb]});await logMod(guild,emb);break;}
+    case"unmute":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const m2=await guild.members.fetch(target.id).catch(()=>null);if(!m2)return ctx.reply({embeds:[E.er("User not found in server.")]},true);await m2.timeout(null,`Timeout removed by ${user.tag}`);return ctx.reply({embeds:[E.ok("ðŸ”Š Timeout Removed").addFields({name:"ðŸ‘¤ User",value:`<@${target.id}>`,inline:true},{name:"ðŸ‘® By",value:user.tag,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"warn":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");const reason=ctx.gs("reason")||ctx.gas().slice(1).join(" ");if(!target||!reason)return ctx.reply({embeds:[E.w("Usage: `/warn @user <reason>`")]},true);const w={id:data.nextWarnId++,type:"warn",reason,modId:user.id,at:new Date().toISOString()};if(!data.warns[target.id])data.warns[target.id]=[];data.warns[target.id].push(w);saveData();const emb=E.mk(C.warn,"âš ï¸ Member Warned").addFields({name:"ðŸ‘¤ User",value:`${target.tag}\n<@${target.id}>`,inline:true},{name:"ðŸ”¢ Warn ID",value:`#${w.id}`,inline:true},{name:"ðŸ“Š Total Warns",value:`${data.warns[target.id].length}`,inline:true},{name:"ðŸ‘® Moderator",value:user.tag,inline:true},{name:"ðŸ“‹ Reason",value:reason}).setFooter({text:FT}).setTimestamp();await ctx.reply({embeds:[emb]});await logMod(guild,emb);try{const u2=await client.users.fetch(target.id);u2.send({embeds:[E.w(`âš ï¸ You were warned in ${guild.name}`).addFields({name:"Reason",value:reason},{name:"Total Warnings",value:`${data.warns[target.id].length}`}).setFooter({text:FT}).setTimestamp()]});}catch{}break;}
+    case"warns":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const list=(data.warns[target.id]||[]).filter(w=>!w.type||w.type==="warn");const emb=E.mk(list.length?C.warn:C.success,`âš ï¸ Warnings â€” ${target.username}`).setThumbnail(target.displayAvatarURL());if(!list.length)emb.setDescription("âœ… This user has no warnings.");else list.slice(-10).forEach(w=>emb.addFields({name:`âš ï¸ Warning #${w.id}`,value:`**Reason:** ${w.reason||"â€”"}\n**By:** <@${w.modId}> Â· <t:${Math.floor(new Date(w.at).getTime()/1000)}:R>`,inline:true}));return ctx.reply({embeds:[emb.setFooter({text:FT}).setTimestamp()]});}
+    case"unwarn":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const id=ctx.gi("id")||parseInt(ctx.ga(0),10);if(!id)return ctx.reply({embeds:[E.w("Provide a warning ID.")]},true);let found=false;for(const uid of Object.keys(data.warns)){const i=data.warns[uid].findIndex(w=>w.id===id);if(i!==-1){data.warns[uid].splice(i,1);found=true;break;}}if(!found)return ctx.reply({embeds:[E.er(`Warning #${id} not found.`)]},true);saveData();return ctx.reply({embeds:[E.ok(`âœ… Warning #${id} removed.`).setFooter({text:FT})]});}
+    case"clearwarns":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const count=(data.warns[target.id]||[]).length;data.warns[target.id]=[];saveData();return ctx.reply({embeds:[E.ok("âœ… Warnings Cleared").setDescription(`Removed **${count}** warning(s) from <@${target.id}>.`).setFooter({text:FT})]});}
+    case"modlogs":{if(!hP(member,PermissionFlagsBits.ModerateMembers))return ctx.reply({embeds:[E.er("You need **Moderate Members** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const logs=(data.warns[target.id]||[]);const emb=E.mo(`ðŸ““ Mod Logs â€” ${target.username}`).setThumbnail(target.displayAvatarURL());if(!logs.length)emb.setDescription("âœ… No mod actions on record.");else logs.slice(-10).forEach(l=>emb.addFields({name:`${l.type==="ban"?"ðŸ”¨":l.type==="kick"?"ðŸ‘¢":"âš ï¸"} ${(l.type||"warn").toUpperCase()} #${l.id}`,value:`**Reason:** ${l.reason||"â€”"}\n**By:** <@${l.modId}> Â· <t:${Math.floor(new Date(l.at).getTime()/1000)}:R>`,inline:true}));return ctx.reply({embeds:[emb.setFooter({text:FT}).setTimestamp()]});}
+    case"purge":{if(!hP(member,PermissionFlagsBits.ManageMessages))return ctx.reply({embeds:[E.er("You need **Manage Messages** permission.")]},true);const count=ctx.gi("count")||parseInt(ctx.ga(0),10)||10;const filterUser=ctx.gu("user");if(count<1||count>100)return ctx.reply({embeds:[E.w("Count must be 1-100.")]},true);if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});const msgs=await ctx.channel.messages.fetch({limit:100}).catch(()=>null);if(!msgs)return ctx.reply({embeds:[E.er("Failed to fetch messages.")]},true);let toDelete=msgs.filter(m=>!m.pinned&&Date.now()-m.createdTimestamp<1209600000);if(filterUser)toDelete=toDelete.filter(m=>m.author.id===filterUser.id);toDelete=toDelete.first(count);const deleted=await ctx.channel.bulkDelete(toDelete,true).catch(()=>null);return ctx.reply({embeds:[E.ok("ðŸ—‘ï¸ Messages Purged").addFields({name:"Deleted",value:`${deleted?.size||0} messages`,inline:true},...(filterUser?[{name:"Filter",value:`<@${filterUser.id}>`,inline:true}]:[]))],flags:MessageFlags.Ephemeral});}
+    case"lock":{if(!hP(member,PermissionFlagsBits.ManageChannels))return ctx.reply({embeds:[E.er("You need **Manage Channels** permission.")]},true);await ctx.channel.permissionOverwrites.edit(guild.roles.everyone,{SendMessages:false}).catch(()=>{});return ctx.reply({embeds:[E.ok("ðŸ”’ Channel Locked").setDescription("Only staff can send messages here.").setFooter({text:FT})]});}
+    case"unlock":{if(!hP(member,PermissionFlagsBits.ManageChannels))return ctx.reply({embeds:[E.er("You need **Manage Channels** permission.")]},true);await ctx.channel.permissionOverwrites.edit(guild.roles.everyone,{SendMessages:null}).catch(()=>{});return ctx.reply({embeds:[E.ok("ðŸ”“ Channel Unlocked").setFooter({text:FT})]});}
+    case"slowmode":{if(!hP(member,PermissionFlagsBits.ManageChannels))return ctx.reply({embeds:[E.er("You need **Manage Channels** permission.")]},true);const secs=ctx.gi("seconds")??parseInt(ctx.ga(0)||"0");await ctx.channel.setRateLimitPerUser(secs).catch(()=>{});return ctx.reply({embeds:[E.ok("ðŸ¢ Slowmode Set").setDescription(secs===0?"Slowmode disabled.":`Messages limited to one per **${secs}s**.`).setFooter({text:FT})]});}
+    case"nick":{if(!hP(member,PermissionFlagsBits.ManageNicknames))return ctx.reply({embeds:[E.er("You need **Manage Nicknames** permission.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const name=ctx.gs("name")||ctx.gas().slice(1).join(" ")||null;const m2=await guild.members.fetch(target.id).catch(()=>null);if(!m2)return ctx.reply({embeds:[E.er("User not found.")]},true);await m2.setNickname(name,`By ${user.tag}`).catch(()=>{});return ctx.reply({embeds:[E.ok("âœï¸ Nickname Updated").addFields({name:"User",value:`<@${target.id}>`,inline:true},{name:"Nickname",value:name||"*(reset)*",inline:true}).setFooter({text:FT})]});}
+    case"announce":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const msg=ctx.gs("message")||ctx.gas().join(" ");if(!msg)return ctx.reply({embeds:[E.w("Provide a message.")]},true);const ch=ctx.gc("channel")||ctx.channel;await ch.send({embeds:[E.b("ðŸ“¢ Announcement").setDescription(msg).setFooter({text:`Announced by ${user.tag}`}).setTimestamp()]});if(ch.id!==ctx.channel.id)return ctx.reply({embeds:[E.ok(`âœ… Announcement posted in <#${ch.id}>!`)]});break;}
+    case"say":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const msg=ctx.gs("message")||ctx.gas().join(" ");if(!msg)return ctx.reply({embeds:[E.w("Provide a message.")]},true);if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});await ctx.channel.send({content:msg});if(ctx.slash)return ctx.reply({content:"âœ… Sent."});}
+    case"embed":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const title=ctx.gs("title")||ctx.ga(0)||"Embed";const body=ctx.gs("body")||ctx.gas().slice(1).join(" ")||"â€”";const hexStr=ctx.gs("color")||"FF8FB1";const color=parseInt(hexStr.replace("#",""),16)||C.brand;await ctx.channel.send({embeds:[new EmbedBuilder().setColor(color).setTitle(title).setDescription(body).setFooter({text:FT}).setTimestamp()]});if(ctx.slash)return ctx.reply({content:"âœ… Embed sent.",flags:MessageFlags.Ephemeral});break;}
+    case"poll":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const question=ctx.gs("question")||ctx.gas().slice(0,1).join(" ");const opts=(ctx.gs("options")||ctx.gas().slice(1).join(" ")||"").split("|").map(o=>o.trim()).filter(Boolean);if(!question)return ctx.reply({embeds:[E.w("Provide a question.")]},true);if(opts.length<2||opts.length>10)return ctx.reply({embeds:[E.w("Provide 2-10 options separated by `|`.")]},true);const nums=["1ï¸âƒ£","2ï¸âƒ£","3ï¸âƒ£","4ï¸âƒ£","5ï¸âƒ£","6ï¸âƒ£","7ï¸âƒ£","8ï¸âƒ£","9ï¸âƒ£","ðŸ”Ÿ"];const emb=E.b(`ðŸ“Š ${question}`).setDescription(opts.map((o,i)=>`${nums[i]} ${o}`).join("\n")).setFooter({text:`Poll by ${user.tag}`}).setTimestamp();const sent=await ctx.channel.send({embeds:[emb]});for(let i=0;i<opts.length;i++)await sent.react(nums[i]).catch(()=>{});if(ctx.slash)return ctx.reply({content:"âœ… Poll posted.",flags:MessageFlags.Ephemeral});break;}
+    case"giveaway":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const durStr=ctx.gs("duration")||ctx.ga(0);const prize=ctx.gs("prize")||ctx.gas().slice(1).join(" ");const winners=ctx.gi("winners")||1;if(!durStr||!prize)return ctx.reply({embeds:[E.w("Usage: `/giveaway <duration> <prize>`")]},true);const ms=parseDur(durStr);if(!ms)return ctx.reply({embeds:[E.er("Invalid duration.")]},true);const endAt=Date.now()+ms;const emb=E.ok("ðŸŽ‰ GIVEAWAY!").setDescription(`React with ðŸŽ‰ to enter!\n\n**Prize:** ${prize}\n**Winners:** ${winners}\n**Ends:** <t:${Math.floor(endAt/1000)}:R>`).setFooter({text:`Hosted by ${user.tag}`}).setTimestamp(endAt);const sent=await ctx.channel.send({embeds:[emb]});await sent.react("ðŸŽ‰");data.giveaways[sent.id]={prize,winners,guildId:guild.id,channelId:ctx.channel.id,endAt,ended:false};saveData();if(ctx.slash)return ctx.reply({content:"âœ… Giveaway started!",flags:MessageFlags.Ephemeral});break;}
+    case"addorder":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const details=ctx.gs("details")||ctx.gas().slice(1).join(" ");if(!details)return ctx.reply({embeds:[E.w("Provide order details.")]},true);const o={id:data.nextOrderId++,userId:target.id,details,status:"not_started",createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),note:null};data.orders.push(o);data.stats.ordersCreated=(data.stats.ordersCreated||0)+1;saveData();updateOrderBoard().catch(()=>{});return ctx.reply({embeds:[E.ok(`âœ… Order #${o.id} Created`).addFields({name:"ðŸ‘¤ Customer",value:`<@${target.id}>`,inline:true},{name:"ðŸ“‹ Details",value:details}).setFooter({text:FT}).setTimestamp()]});}
+    case"updateorder":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const id=ctx.gi("id")||parseInt(ctx.ga(0),10);const status=ctx.gs("status")||ctx.ga(1);const note=ctx.gs("note")||null;const o=findOrder(id);if(!o)return ctx.reply({embeds:[E.er("Order not found.")]},true);if(status&&OS[status])o.status=status;if(note)o.note=note;o.updatedAt=new Date().toISOString();saveData();updateOrderBoard().catch(()=>{});const si=gOS(o.status);return ctx.reply({embeds:[E.mk(si.color,`ðŸ”„ Order #${o.id} Updated`).addFields({name:"ðŸ“Š Status",value:`${si.emoji} ${si.label}`,inline:true},{name:"ðŸ‘¤ Customer",value:`<@${o.userId}>`,inline:true},...(note?[{name:"ðŸ“‹ Note",value:note}]:[])).setFooter({text:FT}).setTimestamp()]});}
+    case"complete":{if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const id=ctx.gi("id")||parseInt(ctx.ga(0),10);const o=findOrder(id);if(!o)return ctx.reply({embeds:[E.er("Order not found.")]},true);o.status="completed";o.updatedAt=new Date().toISOString();data.stats.ordersCompleted=(data.stats.ordersCompleted||0)+1;saveData();updateOrderBoard().catch(()=>{});try{const u=await client.users.fetch(o.userId);u.send({embeds:[E.ok("âœ… Order Complete!").setDescription(`Your order **#${o.id}** has been marked as complete! ðŸŽ‰\n\nThank you for choosing ${NAME}! Leave a review with \`/review\` ðŸ’—`).setFooter({text:FT}).setTimestamp()]});}catch{}return ctx.reply({embeds:[E.ok(`âœ… Order #${o.id} Marked Complete`).addFields({name:"ðŸ‘¤ Customer",value:`<@${o.userId}>`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"blacklist":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const target=ctx.gu("user");if(!target)return ctx.reply({embeds:[E.w("Provide a user.")]},true);const i=data.blacklist.indexOf(target.id);if(i!==-1){data.blacklist.splice(i,1);saveData();return ctx.reply({embeds:[E.ok("âœ… Blacklist Removed").setDescription(`<@${target.id}> can now use the bot.`).setFooter({text:FT})]});}data.blacklist.push(target.id);saveData();return ctx.reply({embeds:[E.er("ðŸš« User Blacklisted").setDescription(`<@${target.id}> can no longer use the bot.`).setFooter({text:FT})]});}
+    case"setlog":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel");if(ch){data.modLogChannels[guild.id]=ch.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Mod Log Set").setDescription(`Logs will be sent to <#${ch.id}>`).setFooter({text:FT})]});}delete data.modLogChannels[guild.id];saveData();return ctx.reply({embeds:[E.ok("âœ… Mod Log Cleared").setFooter({text:FT})]});}
+    case"setreviews":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel");if(!ch)return ctx.reply({embeds:[E.w("Provide a channel.")]},true);gS(guild.id).reviewsChannelId=ch.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Reviews Channel Set").setDescription(`Reviews will post in <#${ch.id}>`).setFooter({text:FT})]});}
+    case"settranscripts":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel");if(!ch)return ctx.reply({embeds:[E.w("Provide a channel.")]},true);gS(guild.id).transcriptsChannelId=ch.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Transcripts Channel Set").setDescription(`Ticket transcripts will post in <#${ch.id}>`).setFooter({text:FT})]});}
+    case"setverifyrole":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const role=ctx.gr("role");if(!role)return ctx.reply({embeds:[E.w("Provide a role.")]},true);gS(guild.id).verifyRoleId=role.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Verify Role Set").setDescription(`<@&${role.id}> will be given on verification.`).setFooter({text:FT})]});}
+    case"setlevelupchannel":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const ch=ctx.gc("channel");if(!ch)return ctx.reply({embeds:[E.w("Provide a channel.")]},true);gS(guild.id).levelUpChannelId=ch.id;saveData();return ctx.reply({embeds:[E.ok("âœ… Level-Up Channel Set").setDescription(`Level-up messages will post in <#${ch.id}>`).setFooter({text:FT})]});}
+    case"ticketpanel":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const{emb,row}=buildTicketPanel();await ctx.channel.send({embeds:[emb],components:[row]});if(ctx.slash)return ctx.reply({content:"âœ… Ticket panel posted!",flags:MessageFlags.Ephemeral});break;}
+    case"close":{if(!ctx.channel?.name?.startsWith("ticket-"))return ctx.reply({embeds:[E.w("Only works inside ticket channels.")]},true);if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const reason=ctx.gs("reason")||ctx.gas().join(" ")||"No reason";if(ctx.slash)await ctx.i.deferReply({flags:MessageFlags.Ephemeral}).catch(()=>{});await closeTicket(ctx.channel,member||user,reason,guild);if(ctx.slash)return ctx.reply({content:"ðŸ”’ Closing ticketâ€¦"});break;}
+    case"addnote":{if(!ctx.channel?.name?.startsWith("ticket-"))return ctx.reply({embeds:[E.w("Only works inside ticket channels.")]},true);if(!isStaff(member))return ctx.reply({embeds:[E.er("Staff only.")]},true);const text=ctx.gs("text")||ctx.gas().join(" ");if(!text)return ctx.reply({embeds:[E.w("Provide note text.")]},true);return ctx.reply({embeds:[E.mk(C.note,"ðŸ“ Staff Note").setDescription(text).setFooter({text:`by ${user.tag}`}).setTimestamp()]});}
+    case"givecoins":{if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);const target=ctx.gu("user");const amount=ctx.gi("amount")||parseInt(ctx.ga(1),10);if(!target||!amount||amount<1)return ctx.reply({embeds:[E.w("Usage: `/givecoins @user <amount>`")]},true);gE(target.id).coins=(gE(target.id).coins||0)+amount;saveData();return ctx.reply({embeds:[E.ok("ðŸ’° Coins Given").addFields({name:"ðŸ‘¤ User",value:`<@${target.id}>`,inline:true},{name:"ðŸ’° Amount",value:`+${amount} ðŸª™`,inline:true},{name:"ðŸ’¼ New Balance",value:`${gE(target.id).coins} ðŸª™`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+    case"backup":{
+      if(!guild)return ctx.reply({embeds:[E.er("Server only.")]},true);if(!isAdmin(member))return ctx.reply({embeds:[E.er("Administrator only.")]},true);
+      const sub=ctx.gsub()||ctx.ga(0)||"";
+      if(sub==="create"){if(ctx.slash)await ctx.i.deferReply().catch(()=>{});const bk=await createBackup(guild);return ctx.reply({embeds:[E.ok("ðŸ’¾ Backup Created").addFields({name:"ðŸ†” Backup ID",value:bk.id,inline:true},{name:"ðŸ“‹ Channels",value:`${bk.channels.length}`,inline:true},{name:"ðŸŽ­ Roles",value:`${bk.roles.length}`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+      if(sub==="list"){const bks=data.serverBackups[guild.id]||[];if(!bks.length)return ctx.reply({embeds:[E.w("No backups yet. Use `backup create`.")]});return ctx.reply({embeds:[E.b("ðŸ’¾ Server Backups").setDescription(bks.map(b=>`\`${b.id}\` â€” ${b.channels.length} channels Â· ${b.roles.length} roles Â· <t:${Math.floor(new Date(b.createdAt).getTime()/1000)}:R>`).join("\n")).setFooter({text:FT})]});}
+      if(sub==="view"){const id=ctx.gs("id")||ctx.ga(1);const bk=(data.serverBackups[guild.id]||[]).find(b=>b.id===id);if(!bk)return ctx.reply({embeds:[E.er("Backup not found.")]},true);return ctx.reply({embeds:[E.b(`ðŸ’¾ Backup â€” ${bk.id}`).addFields({name:"ðŸ  Server Name",value:bk.name,inline:true},{name:"ðŸ“… Created",value:`<t:${Math.floor(new Date(bk.createdAt).getTime()/1000)}:F>`,inline:true},{name:"ðŸ’¬ Channels",value:`${bk.channels.length}`,inline:true},{name:"ðŸŽ­ Roles",value:`${bk.roles.length}`,inline:true}).setFooter({text:FT}).setTimestamp()]});}
+      return ctx.reply({embeds:[E.w("Subcommands: `create` Â· `list` Â· `view <id>`")]},true);
+    }
+    default:break;
+  }
+}
+
+// â”€â”€ SLASH + PREFIX CONTEXT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function makeSlashCtx(interaction){
+  return{
+    slash:true,i:interaction,guild:interaction.guild,member:interaction.member,user:interaction.user,channel:interaction.channel,
+    gs: k=>interaction.options?.getString?.(k)??null,
+    gi: k=>interaction.options?.getInteger?.(k)??null,
+    gu: k=>interaction.options?.getUser?.(k)??null,
+    gr: k=>interaction.options?.getRole?.(k)??null,
+    gc: k=>interaction.options?.getChannel?.(k)??null,
+    gsub:()=>{try{return interaction.options?.getSubcommand();}catch{return null;}},
+    ga:()=>null,gas:()=>[],grm:()=>null,
+    reply:async(payload,eph=false)=>rep(interaction,payload,eph),
+  };
+}
+
+function makePrefixCtx(msg,args){
+  return{
+    slash:false,i:null,guild:msg.guild,member:msg.member,user:msg.author,channel:msg.channel,
+    gs:(_k,_r,idx=0)=>args[idx]||null,
+    gi:(_k,_r,idx=0)=>args[idx]?parseInt(args[idx],10)||null:null,
+    gu:(_k,idx=0)=>{const id=(args[idx]||"").replace(/[<@!>]/g,"");return id?client.users.cache.get(id)||null:null;},
+    gr:(_k,idx=0)=>{if(!msg.guild)return null;const id=(args[idx]||"").replace(/[<@&>]/g,"");return id?msg.guild.roles.cache.get(id)||null:null;},
+    gc:(_k,idx=0)=>{if(!msg.guild)return null;const id=(args[idx]||"").replace(/[<#>]/g,"");return id?msg.guild.channels.cache.get(id)||null:null;},
+    gsub:()=>args[0]?.toLowerCase()||null,
+    ga:idx=>args[idx]||null,
+    gas:()=>args,
+    grm:(idx)=>{if(!msg.guild)return null;const id=(args[idx]||"").replace(/[<@&>]/g,"");return id?msg.guild.roles.cache.get(id)||null:null;},
+    reply:async(payload)=>{try{if(typeof payload==="string")return msg.channel.send({content:payload});const{flags:_f,...rest}=payload;return msg.channel.send({...rest,allowedMentions:{...rest.allowedMentions}});}catch(e){console.error("[prefixReply]",e.message);}},
+  };
+}
+
+// â”€â”€ INTERACTION CREATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("interactionCreate",async interaction=>{
+  try{
+    if(data.blacklist.includes(interaction.user.id)&&interaction.isRepliable()){interaction.reply({content:"ðŸš« You are blacklisted.",flags:MessageFlags.Ephemeral}).catch(()=>{});return;}
+    if(interaction.isChatInputCommand())return exec(interaction.commandName,makeSlashCtx(interaction));
+    if(interaction.isButton()){
+      const typeMap={ticket_order:"order",ticket_partner:"partnership",ticket_inquiry:"inquiry"};
+      if(typeMap[interaction.customId]){
+        const type=typeMap[interaction.customId];let modal;
+        if(type==="order"){modal=new ModalBuilder().setCustomId("modal_order").setTitle("ðŸ“¦ Commission Order");modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("username").setLabel("Your Roblox Username").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("service").setLabel("Service Needed").setPlaceholder("e.g. UI, datastore, admin systemâ€¦").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("description").setLabel("Detailed Description").setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("budget").setLabel("Your Budget").setPlaceholder("e.g. $25 USD, 5000 Robuxâ€¦").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("payment").setLabel("Payment Method").setPlaceholder("PayPal F&F, CashApp, Robux, Gift Cardâ€¦").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)));}
+        else if(type==="partnership"){modal=new ModalBuilder().setCustomId("modal_partner").setTitle("ðŸ¤ Partnership Request");modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("serverName").setLabel("Server Name").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("invite").setLabel("Permanent Invite Link").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("memberCount").setLabel("Member Count").setPlaceholder("e.g. 150 (minimum 45 required)").setStyle(TextInputStyle.Short).setMaxLength(50).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("focus").setLabel("Server Focus / Niche").setPlaceholder("e.g. Roblox scripting, game devâ€¦").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("offering").setLabel("What Can You Offer?").setPlaceholder("e.g. Ad in announcements, server promotionâ€¦").setStyle(TextInputStyle.Paragraph).setMaxLength(500).setRequired(true)));}
+        else{modal=new ModalBuilder().setCustomId("modal_inquiry").setTitle("â“ Support Inquiry");modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("name").setLabel("Your Name or Username").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("topic").setLabel("Topic / Question Summary").setStyle(TextInputStyle.Short).setMaxLength(200).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("details").setLabel("Full Details").setStyle(TextInputStyle.Paragraph).setMaxLength(1000).setRequired(true)),new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("urgency").setLabel("Urgency (optional)").setPlaceholder("Not urgent / Within a few days / ASAP").setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(false)));}
+        return interaction.showModal(modal);
+      }
+      if(interaction.customId==="ticket_close_btn"){const modal=new ModalBuilder().setCustomId("modal_close").setTitle("ðŸ”’ Close Ticket");modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("reason").setLabel("Reason for closing").setStyle(TextInputStyle.Paragraph).setMaxLength(500).setRequired(true)));return interaction.showModal(modal);}
+      if(interaction.customId==="verify_start"){const modal=new ModalBuilder().setCustomId("modal_verify_start").setTitle("ðŸŸ£ Roblox Verification");modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("username").setLabel("Your Roblox Username").setStyle(TextInputStyle.Short).setMaxLength(50).setRequired(true)));return interaction.showModal(modal);}
+    }
+    if(interaction.isModalSubmit()){
+      const typeMap={modal_order:"order",modal_partner:"partnership",modal_inquiry:"inquiry"};
+      if(typeMap[interaction.customId]){
+        await interaction.deferReply({flags:MessageFlags.Ephemeral});
+        const type=typeMap[interaction.customId];let answers={};
+        if(type==="order")answers={username:interaction.fields.getTextInputValue("username"),service:interaction.fields.getTextInputValue("service"),description:interaction.fields.getTextInputValue("description"),budget:interaction.fields.getTextInputValue("budget"),payment:interaction.fields.getTextInputValue("payment")};
+        else if(type==="partnership")answers={serverName:interaction.fields.getTextInputValue("serverName"),invite:interaction.fields.getTextInputValue("invite"),memberCount:interaction.fields.getTextInputValue("memberCount"),focus:interaction.fields.getTextInputValue("focus"),offering:interaction.fields.getTextInputValue("offering")};
+        else answers={name:interaction.fields.getTextInputValue("name"),topic:interaction.fields.getTextInputValue("topic"),details:interaction.fields.getTextInputValue("details"),urgency:interaction.fields.getTextInputValue("urgency")};
+        const memberObj=interaction.member??await interaction.guild?.members.fetch(interaction.user.id).catch(()=>null);
+        const result=await openTicket(interaction.guild,memberObj,type,answers);
+        if(!result.ok)return interaction.editReply({content:`âŒ ${result.error}`});
+        return interaction.editReply({content:`âœ… Your ticket has been created: <#${result.channel.id}>`});
+      }
+      if(interaction.customId==="modal_close"){const reason=interaction.fields.getTextInputValue("reason");if(!interaction.channel?.name?.startsWith("ticket-"))return interaction.reply({content:"âŒ Not a ticket channel.",flags:MessageFlags.Ephemeral});await interaction.deferReply({flags:MessageFlags.Ephemeral});await interaction.editReply({content:"ðŸ”’ Closing ticketâ€¦"});await closeTicket(interaction.channel,interaction.member||interaction.user,reason,interaction.guild);return;}
+      if(interaction.customId==="modal_verify_start"){
+        await interaction.deferReply({flags:MessageFlags.Ephemeral});
+        const username=interaction.fields.getTextInputValue("username");
+        const rxUser=await fetchRxUser(username);
+        if(!rxUser)return interaction.editReply({content:"âŒ Roblox user not found. Check the spelling."});
+        const code=genCode();data.verificationCodes[interaction.user.id]={code,robloxName:rxUser.name,robloxId:rxUser.id,expiresAt:Date.now()+10*60000};saveData();
+        const avatar=await fetchRxAvatar(rxUser.id);
+        const emb=E.rb("ðŸŸ£ Verification Code â€” Step 2").setDescription([`**Found:** [${rxUser.name}](https://www.roblox.com/users/${rxUser.id}/profile)`,"","**Steps:**","â‘  Copy the code below","â‘¡ Go to [roblox.com/my/account](https://www.roblox.com/my/account) â†’ **About** tab","â‘¢ Paste code in your bio and **save**",`â‘£ Run \`/checkverify ${code}\` here`,"","> â° Expires in **10 minutes**"].join("\n")).addFields({name:"ðŸ”‘ Your Code",value:`\`\`\`${code}\`\`\``}).setFooter({text:"Paste in Roblox bio â†’ /checkverify"}).setTimestamp();
+        if(avatar)emb.setThumbnail(avatar);return interaction.editReply({embeds:[emb]});
+      }
+    }
+  }catch(err){console.error("[Interaction]",err.message);await errLog(err,"Interaction handler");try{if(interaction.isRepliable()&&!interaction.replied&&!interaction.deferred)await interaction.reply({content:"âŒ An error occurred.",flags:MessageFlags.Ephemeral});}catch{}}
+});
+
+// â”€â”€ REACTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("messageReactionAdd",   async(r,u)=>{if(u.bot)return;if(r.partial)try{await r.fetch();}catch{return;}await handleRR(r,u,true);});
+client.on("messageReactionRemove",async(r,u)=>{if(u.bot)return;if(r.partial)try{await r.fetch();}catch{return;}await handleRR(r,u,false);});
+
+// â”€â”€ MESSAGE CREATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("messageCreate",async msg=>{
+  if(msg.author.bot||!msg.guild)return;
+  if(msg.channel.id===ENV.STICKY)refreshSticky(msg.channel).catch(()=>{});
+  if(pAwaitAd.has(msg.channel.id)){
+    const pd=pAwaitAd.get(msg.channel.id);
+    if(msg.author.id===pd.member.id&&msg.content.trim().length>=20){
+      pAwaitAd.delete(msg.channel.id);
+      setImmediate(async()=>{
+        try{
+          const{answers}=pd,adText=msg.content.trim(),banner=msg.attachments.first()?.url||null;
+          if(!ENV.PAD)return;const g=client.guilds.cache.get(ENV.HOME);if(!g)return;
+          const ch=await g.channels.fetch(ENV.PAD).catch(()=>null);if(!ch?.isTextBased())return;
+          const emb=new EmbedBuilder().setColor(C.note).setTitle(answers.serverName||"New Partner").setDescription(`${adText}\n\u200b`).addFields({name:"ðŸ‘¥ Members",value:answers.memberCount||"â€”",inline:true},{name:"ðŸŽ¯ Focus",value:answers.focus||"â€”",inline:true},{name:"ðŸ¤ Offering",value:answers.offering||"â€”"},{name:"ðŸ”— Join",value:answers.invite||"â€”"}).setFooter({text:`${NAME} Partnerships`}).setTimestamp();
+          if(banner)emb.setImage(banner);
+          await ch.send({embeds:[emb]});
+          await msg.channel.send({embeds:[E.ok("âœ… Partnership Posted!").setDescription(`Your ad is live in <#${ENV.PAD}>! ðŸ’—\n\nThis ticket closes in 15 seconds.`)]});
+          setTimeout(()=>msg.channel.delete("Partnership posted").catch(()=>{}),15000);
+        }catch(e){console.error("[PartnerAd]",e.message);}
+      });
+      return;
+    }
+  }
+
+  // â”€â”€ Forum thread AI response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if(ENV.FORUM&&msg.channel.isThread?.()&&msg.channel.parentId===ENV.FORUM&&GEMINI_KEY){
+    const forumKey=`forum_${msg.channel.id}`;
+    if(!aiProcessing.has(forumKey)){
+      const cdKey=`forum:${msg.channel.id}:${msg.author.id}`,last=aiCD.get(cdKey)||0;
+      if(Date.now()-last>=8000){
+        aiCD.set(cdKey,Date.now());
+        aiProcessing.add(forumKey);
+        setImmediate(async()=>{
+          try{
+            const{text,model}=await callTicketAI(forumKey,msg.content,"inquiry",null);
+            if(text)await msg.channel.send({embeds:[aiE(text,model,msg.author.username,"forum")]}).catch(()=>{});
+          }catch(e){console.error("[ForumAI]",e.message);}
+          finally{aiProcessing.delete(forumKey);}
+        });
+      }
+    }
+    return;
+  }
+
+  // â”€â”€ Ticket AI response â€” one reply per user message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if(msg.channel.name?.startsWith("ticket-")&&!msg.content.startsWith("s!")){
+    const s=gS(msg.guild.id);const staff=isStaff(msg.member);
+    const typeMatch=msg.channel.topic?.match(/^\[(\w+)\]/);const ticketType=typeMatch?typeMatch[1]:"inquiry";
+    if(!staff&&s.ticketAI!==false&&GEMINI_KEY&&!tAIOff.has(msg.channel.id)&&ticketType!=="order"){
+      const cdKey=`${msg.channel.id}:${msg.author.id}`,last=aiCD.get(cdKey)||0;
+      if(Date.now()-last>=8000&&!aiProcessing.has(msg.channel.id)){
+        aiCD.set(cdKey,Date.now());
+        aiProcessing.add(msg.channel.id);
+        setImmediate(async()=>{
+          try{
+            const{text,model}=await callTicketAI(msg.channel.id,msg.content,ticketType,null);
+            if(text)await msg.channel.send({embeds:[aiE(text,model,msg.author.username,ticketType)]}).catch(()=>{});
+          }catch(e){console.error("[TicketAI]",e.message);}
+          finally{aiProcessing.delete(msg.channel.id);}
+        });
+      }
+    }
+  }
+
+  if(!msg.content.startsWith("s!")){
+    grantXP(msg).catch(()=>{});grantCoins(msg).catch(()=>{});
+    if(data.triviaActive[msg.channel.id]){const tv=data.triviaActive[msg.channel.id];if(tv.answers.some(a=>msg.content.trim().toLowerCase().includes(a.toLowerCase()))){gE(msg.author.id).coins=(gE(msg.author.id).coins||0)+tv.coins;delete data.triviaActive[msg.channel.id];saveData();await msg.reply({embeds:[E.ok("ðŸ§  Correct!").setDescription(`**+${tv.coins} ðŸª™** added to your balance!`).setFooter({text:FT})]}).catch(()=>{});}}
+    return;
+  }
+  if(data.blacklist.includes(msg.author.id))return;
+  const rawArgs=msg.content.slice("s!".length).trim().split(/\s+/);
+  const cmd=rawArgs.shift()?.toLowerCase();if(!cmd)return;
+  const ctx=makePrefixCtx(msg,rawArgs);
+  try{await exec(cmd,ctx);}catch(err){console.error(`[Prefix ${cmd}]`,err.message);await errLog(err,`Prefix: s!${cmd}`);}
+});
+
+// â”€â”€ FORUM THREAD CREATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("threadCreate",async thread=>{
+  try{
+    if(!ENV.FORUM||thread.parentId!==ENV.FORUM)return;
+    await thread.join().catch(()=>{});
+    if(!GEMINI_KEY)return;
+    const{text,model}=await callTicketAI(`forum_${thread.id}`,`New support thread: "${thread.name}". Greet the user warmly, introduce yourself as Snuggles AI, and ask them to describe their Roblox scripting issue in detail.`,"inquiry",null);
+    if(text)await thread.send({embeds:[aiE(text,model,"Support","forum")]});
+  }catch(e){console.error("[threadCreate]",e.message);}
+});
+
+// â”€â”€ GUILD EVENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("guildCreate",async g=>{
+  console.log(`Joined: ${g.name}`);updStat();await cacheInvites(g).catch(()=>{});
+  const ch=g.channels.cache.filter(c=>c.type===ChannelType.GuildText&&c.permissionsFor(g.members.me)?.has(PermissionFlagsBits.SendMessages)).sort((a,b)=>a.rawPosition-b.rawPosition).first();
+  if(ch)await ch.send({embeds:[E.b(`ðŸ§¸ ${NAME} v${VER} â€” Thanks for adding me!`).setDescription(["`/setlog #channel` â€” mod log","`/setreviews #channel` â€” reviews","`/settranscripts #channel` â€” transcripts","`/setverifyrole @role` â€” Roblox verify","`/setscamchannel #channel` â€” scam reports","`/ticketpanel` â€” post ticket panel","","Run `s!setup` for full guide | `s!help` for all commands"].join("\n")).setFooter({text:`${NAME} v${VER} Â· Made with ðŸ’— by ${OWNER}`}).setTimestamp()]}).catch(()=>{});
+});
+client.on("guildDelete",g=>{console.log(`Left: ${g.name}`);updStat();});
+client.on("inviteCreate",inv=>{if(!inv.guild)return;if(!data.inviteCache[inv.guild.id])data.inviteCache[inv.guild.id]={};data.inviteCache[inv.guild.id][inv.code]=inv.uses||0;saveData();});
+client.on("inviteDelete",inv=>{if(!inv.guild)return;if(data.inviteCache[inv.guild.id])delete data.inviteCache[inv.guild.id][inv.code];saveData();});
+
+client.on("guildMemberAdd",async member=>{
+  try{
+    await handleRaidJoin(member);const g=member.guild;
+    const newInv=await g.invites.fetch().catch(()=>null);
+    if(newInv){const cached=data.inviteCache[g.id]||{};let inviterId=null;newInv.forEach(inv=>{if((inv.uses||0)>(cached[inv.code]||0)){inviterId=inv.inviter?.id;}cached[inv.code]=inv.uses||0;});data.inviteCache[g.id]=cached;if(inviterId){if(!data.invites[g.id])data.invites[g.id]={};if(!data.invites[g.id][inviterId])data.invites[g.id][inviterId]={invited:0,left:0};data.invites[g.id][inviterId].invited++;}saveData();}
+    await logMod(g,E.ok("ðŸ“¥ Member Joined").addFields({name:"User",value:`<@${member.id}> (${member.user.tag})`},{name:"Account Age",value:`<t:${Math.floor(member.user.createdTimestamp/1000)}:R>`}).setThumbnail(member.user.displayAvatarURL()).setTimestamp());
+  }catch{}
+});
+
+client.on("guildMemberRemove",async member=>{
+  try{if(data.invites[member.guild.id]){for(const inv of Object.values(data.invites[member.guild.id])){inv.left++;break;}saveData();}await logMod(member.guild,E.er("ðŸ“¤ Member Left").addFields({name:"User",value:`<@${member.id}> (${member.user.tag})`}).setThumbnail(member.user.displayAvatarURL()).setTimestamp());}catch{}
+});
+
+client.on("messageDelete",async msg=>{try{if(!msg.guild||msg.author?.bot||msg.partial||!msg.content)return;await logMod(msg.guild,E.er("ðŸ—‘ï¸ Message Deleted").addFields({name:"Author",value:`<@${msg.author.id}>`,inline:true},{name:"Channel",value:`<#${msg.channel.id}>`,inline:true},{name:"Content",value:msg.content.slice(0,1024)}).setTimestamp());}catch{}});
+client.on("messageUpdate",async(o,n)=>{try{if(!n.guild||n.author?.bot||o.partial||n.partial||o.content===n.content)return;await logMod(n.guild,E.w("âœï¸ Message Edited").addFields({name:"Author",value:`<@${n.author.id}>`,inline:true},{name:"Channel",value:`<#${n.channel.id}>`,inline:true},{name:"Before",value:(o.content||"â€”").slice(0,1024)},{name:"After",value:(n.content||"â€”").slice(0,1024)},{name:"Link",value:`[Jump](${n.url})`,inline:true}).setTimestamp());}catch{}});
+client.on("channelDelete",async ch=>{try{if(!ch.guild)return;await logMod(ch.guild,E.er("ðŸ’¬ Channel Deleted").addFields({name:"Name",value:ch.name,inline:true}).setTimestamp());const logs=await ch.guild.fetchAuditLogs({type:AuditLogEvent.ChannelDelete,limit:1}).catch(()=>null);if(logs){const e=logs.entries.first();if(e)await checkNuke(ch.guild,e.executor.id,"channelDelete");}}catch{}});
+client.on("roleDelete",async r=>{try{await logMod(r.guild,E.er("ðŸŽ­ Role Deleted").addFields({name:"Name",value:r.name,inline:true}).setTimestamp());const logs=await r.guild.fetchAuditLogs({type:AuditLogEvent.RoleDelete,limit:1}).catch(()=>null);if(logs){const e=logs.entries.first();if(e)await checkNuke(r.guild,e.executor.id,"roleDelete");}}catch{}});
+client.on("guildBanAdd",async ban=>{try{await logMod(ban.guild,E.er("ðŸ”¨ Member Banned").addFields({name:"User",value:`${ban.user.tag}`},{name:"Reason",value:ban.reason||"No reason"}).setTimestamp());const logs=await ban.guild.fetchAuditLogs({type:AuditLogEvent.MemberBanAdd,limit:1}).catch(()=>null);if(logs){const e=logs.entries.first();if(e)await checkNuke(ban.guild,e.executor.id,"ban");}}catch{}});
+client.on("guildBanRemove",async ban=>{try{await logMod(ban.guild,E.ok("ðŸ”“ Member Unbanned").addFields({name:"User",value:`${ban.user.tag}`}).setTimestamp());}catch{}});
+
+// â”€â”€ ERROR HANDLERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.on("error",err=>{console.error("Client error:",err.message);errLog(err,"Client error");});
+process.on("unhandledRejection",err=>{const msg=String(err?.message||err);if(msg.includes("Sign in to confirm")||msg.includes("live stream"))return;console.error("Unhandled rejection:",msg);errLog(err,"Unhandled rejection");});
+process.on("uncaughtException",err=>{console.error("Uncaught exception:",err);errLog(err,"Uncaught exception");});
+
+// â”€â”€ READY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.once("clientReady",async()=>{
+  console.log(`âœ…  ${NAME} v${VER} â€” ${client.user.tag}`);
+  console.log(`ðŸ¤–  AI: ${GEMINI_KEY?"Gemini Enabled":"Disabled"}`);
+  console.log(`ðŸ–¼ï¸   Images: ${STAB_KEY?"Stability AI":"Pollinations (fallback)"}`);
+  await registerSlash();
+  for(const[,g]of client.guilds.cache)await cacheInvites(g).catch(()=>{});
+  updStat();
+  setInterval(updStat,5*60000);
+  setInterval(checkGiveaways,10000);
+  setInterval(updateOrderBoard,3*3600000);
+  setTimeout(updateOrderBoard,6000);
+});
+
+// â”€â”€ LOGIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+client.login(TOKEN);
